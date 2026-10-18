@@ -11,11 +11,22 @@ from ..policy import authorize
 from . import CATALOG, ActionResult, tier_a
 from .monitor import ExecutionMonitor
 
+
+def _sbom_match(transport, request):
+    asset_id = request.asset_ids[0] if request.asset_ids else ""
+    value = {
+        "purl": request.parameters.get("package", ""),
+        "version": request.parameters.get("version", ""),
+    }
+    return ActionResult("succeeded", "sbom_match", facts=(("sbom_component", asset_id, 0, value),))
+
+
 HANDLERS = {
     "confirm.reachability": tier_a.run_reachability,
     "confirm.banner": tier_a.run_banner,
     "confirm.http_status": tier_a.run_http_status,
     "recon.http_fingerprint": tier_a.run_http_status,
+    "recon.sbom_match": _sbom_match,
 }
 
 
@@ -50,6 +61,16 @@ def _record_facts(store, request, action_id, result, now):
                 observed_at=now,
                 version="",
                 extra={"bytes": value.get("bytes", 0)},
+            )
+        elif kind == "sbom_component":
+            fact = facts_mod.record_sbom_component(
+                asset_id,
+                purl=value.get("purl", ""),
+                version=value.get("version", ""),
+                source="recon",
+                artifact_hash=digest,
+                observed_at=now,
+                source_action_id=action_id,
             )
         else:
             fact = facts_mod.record_http_metadata(

@@ -123,3 +123,22 @@ def verify_bundle(path: Path) -> dict:
         "audit_chain_head": previous,
         "sha256": sha256_file(path),
     }
+
+
+def sign_bundle(path: Path, private_key_hex: str) -> dict:
+    """Produce a detached Ed25519 signature over the bundle's SHA-256 (SPEC §8.1)."""
+    from .signing import sign
+
+    digest = sha256_file(path)
+    signature = sign(private_key_hex, bytes.fromhex(digest))
+    signature_path = Path(str(path) + ".sig")
+    signature_path.write_text(signature + "\n")
+    return {"bundle": str(path), "signature": str(signature_path), "sha256": digest}
+
+
+def verify_bundle_signature(path: Path, signature_hex: str, public_key_hex: str) -> dict:
+    from .signing import fingerprint, verify
+
+    digest = sha256_file(path)
+    ok = verify(public_key_hex, signature_hex.strip(), bytes.fromhex(digest))
+    return {"verified": ok, "fingerprint": fingerprint(public_key_hex)}

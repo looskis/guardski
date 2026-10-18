@@ -120,6 +120,7 @@ def run(
         cleanup_work(config)
         store.sync_jobs(config, time.time())
         store.heartbeat()
+        runner = None
         try:
             if once:
                 results = []
@@ -130,6 +131,11 @@ def run(
                         results.append(scan_target(config, target, store, stop, lease_fd))
                 # Manual scans do not move the recurring schedule.
                 return results
+            if config.agent.reasoning_enabled:
+                from .runner import ReasoningRunner, start_heartbeat
+
+                start_heartbeat(config, stop)
+                runner = ReasoningRunner(config, store)
             while not stop.is_set():
                 store.heartbeat()
                 for tid in store.due(time.time()):
@@ -139,6 +145,8 @@ def run(
                     if not stop.is_set():
                         # Coalesce missed runs; schedule from completion, with no catch-up burst.
                         store.advance(targets[tid], time.time())
+                if runner is not None and not stop.is_set():
+                    runner.tick(time.time(), stop)
                 stop.wait(1)
             return []
         finally:

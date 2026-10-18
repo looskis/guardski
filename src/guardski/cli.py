@@ -20,7 +20,7 @@ from . import plans as plans_mod
 from . import roe as roe_mod
 from .agent import run
 from .config import load_config
-from .evidence import export_bundle, verify_bundle
+from .evidence import export_bundle, sign_bundle, verify_bundle, verify_bundle_signature
 from .providers import build_provider
 from .reasoning.agent import generate_plan
 from .reasoning.discovery import run_cycle
@@ -60,6 +60,11 @@ def parser() -> argparse.ArgumentParser:
     export.add_argument("--output", type=Path, required=True)
     verify = commands.add_parser("verify", help="Verify an evidence bundle (no config required)")
     verify.add_argument("bundle", type=Path)
+    verify.add_argument("--signature", type=Path)
+    verify.add_argument("--public-key", type=Path)
+    signbundle = commands.add_parser("sign-bundle", help="Sign an evidence bundle (Ed25519)")
+    signbundle.add_argument("bundle", type=Path)
+    signbundle.add_argument("--key", required=True, type=Path)
     commands.add_parser("verify-audit", help="Verify the local audit hash chain")
     commands.add_parser(
         "gate", help="Fail for coverage gaps, overdue issues, or open HIGH/CRITICAL issues"
@@ -126,7 +131,19 @@ def main(argv: list[str] | None = None) -> int:
     store = None
     try:
         if args.command == "verify":
-            emit(verify_bundle(args.bundle))
+            result = verify_bundle(args.bundle)
+            if args.signature and args.public_key:
+                result.update(
+                    verify_bundle_signature(
+                        args.bundle,
+                        args.signature.read_text(),
+                        args.public_key.read_text().strip(),
+                    )
+                )
+            emit(result)
+            return 0
+        if args.command == "sign-bundle":
+            emit(sign_bundle(args.bundle, args.key.read_text().strip()))
             return 0
         config = load_config(args.config)
         if args.command == "check":
