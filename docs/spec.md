@@ -16,6 +16,13 @@ and a gate (§4.5, §6), concurrency and rate are separated (§5.3), CIDR expans
 authorization (§5.2), corroborating provenance is an append-only array (§4.1.4), and the
 missing DDL for `credentials`, `intel_feeds`, and breaker state is supplied (§4.5)._
 
+_Implementation status (2026-11-01): Phase 1 is complete and Phase 2–5 are implemented at
+module level with tests (graph, facts, intel, ingest, providers, reasoning, discovery,
+RoE, policy, tier-A/Tier-B/Tier-C actions, monitor, notify, credentials, compliance),
+using a deterministic stub provider. Remaining integration work: wiring authorized recon
+tasks to real scanner runs in the daemon, bundle-signing CLI, the retention purge job, and
+the scheduled discovery timer. See the module docstrings for the shipped contract._
+
 _Revision 2 added the missing half of the agent: a closed discovery loop (§4.10), scoped
 deterministic context (§4.1.1), agent-recorded observations that are not findings
 (§4.1.2), offline vulnerability intelligence (§4.1.3), a real `ActionRequest` schema and

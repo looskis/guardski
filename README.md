@@ -6,11 +6,13 @@ governed, model-agnostic agentic reasoning and exploitation, producing tamper-ev
 audit evidence. It targets regulated, sovereign buyers who need the between-pentest
 continuous-validation layer that SaaS and cloud-tethered tools cannot serve.
 
-**Version 0.1 ships the deterministic scanning and evidence baseline; it has no
-hosted control plane, inbound API, telemetry of its own, or automatic remediation.**
-The governed agentic layer is specified in [the system spec](docs/spec.md) and under
-active development. See [coverage and audit readiness](docs/coverage.md) for
-implemented checks, explicit gaps, and proposed GitHub/source-code integrations.
+**Version 0.1 ships the deterministic scanning and evidence baseline.** The governed
+agentic layer (target graph, scoped context, plan generation, signed RoE + policy gate,
+tiered actions, discovery loop, hypothesis tracking, and compliance packs) is implemented
+in `src/guardski/` per [the system spec](docs/spec.md); it defaults off (`reasoning_enabled
+= false`) and is exercised by the test suite with a deterministic stub provider. See
+[coverage and audit readiness](docs/coverage.md) for implemented checks, explicit gaps, and
+proposed GitHub/source-code integrations.
 
 ## Implemented coverage
 
