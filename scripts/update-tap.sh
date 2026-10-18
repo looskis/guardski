@@ -18,7 +18,7 @@ gh repo clone "$tap_repo" "$work/tap" -- --depth 1
 cp "$work/guardski.rb" "$work/tap/Formula/guardski.rb"
 
 cd "$work/tap"
-if git diff --quiet -- Formula/guardski.rb; then
+if [ -z "$(git status --porcelain -- Formula/guardski.rb)" ]; then
   echo "tap already has guardski $version"
   exit 0
 fi
