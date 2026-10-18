@@ -841,7 +841,7 @@ CREATE TABLE intel (
   PRIMARY KEY (source, cve)
 );
 
-CREATE TABLE credentials (          -- metadata only; values live in credentials.age
+CREATE TABLE credentials (          -- metadata + resolver ref; value never stored
   id TEXT PRIMARY KEY, kind TEXT NOT NULL, role TEXT, scope_json TEXT NOT NULL,
   purpose TEXT, created_at REAL NOT NULL, created_by TEXT NOT NULL, expires_at REAL
 );
@@ -856,8 +856,8 @@ ALTER TABLE runtime ADD COLUMN circuit_opened_at REAL;
 `runtime` is a single row (`CHECK(id=1)`); the breaker state is per-provider, and the spec
 has one provider, so one row is sufficient. `intel` always holds the **current** snapshot
 per source; `intel_feeds` keeps the import history that `intel_days` prunes. `credentials`
-holds metadata that the graph may read without the key; the encrypted values stay in
-`credentials.age` (§7.3).
+holds metadata and a resolver ref that the graph may read; values stay in the external
+backend and are resolved only at execution time (§7.3).
 
 Generating a plan writes `plan_generated` with
 `{plan_id, scope, context_digest, graph_digest, model_id, prompt_sha256, builder_version}`.
@@ -1148,7 +1148,7 @@ roe:
 - **Co-sign:** `max_tier = "C"` requires at least two distinct approver signatures.
 - **Credentials:** the `credentials` list references entries in the credential store
   (`credentials.py`, §7.3) by ID. Secrets never appear in the RoE — the RoE is signed
-  and auditable; credentials are encrypted at rest and decrypted only in memory at
+  and auditable; credentials are referenced by ID and resolved only in memory at
   action execution time.
 - Loading an RoE emits `roe_loaded` with its id, hash, and signer fingerprints. A failed
   signature or expired window emits `roe_rejected` and blocks all actions.
@@ -2028,8 +2028,9 @@ trusts = ["identity-provider-01"]   # operator-declared asset_trusts_asset edges
 
 ### 11.7 Credential store tests
 
-- Credentials are encrypted at rest; the plaintext file does not contain the secret.
-- `guardski credential add` requires the `GUARDSKI_CREDENTIALS_KEY` env var.
+- Credentials store only a reference (`safeski:`/`env:`/`file:`); no value is written to
+  the database, artifacts, or logs.
+- `guardski credential add` requires `--ref` and `--actor`.
 - An action requesting a credential not in the RoE is denied by the policy engine.
 - An action requesting a credential whose `scope` does not cover the target is denied.
 - An expired credential is refused with `credential_expired`.
@@ -2347,8 +2348,8 @@ the section it references.
   require operator CLI. _(§1 invariant 7, §7.1)_
 - **Notification interface** — pluggable notifier protocol with log/webhook/syslog
   backends; all state changes emit notifications in addition to audit events. _(§7.2)_
-- **Credential store** — encrypted at rest (age), referenced by ID in the RoE, decrypted
-  only at execution time, never logged. _(§7.3)_
+- **Credential store** — references resolved at execution time (revision 4, decision 4),
+  never stored or logged; the age vault was dropped. _(§7.3)_
 - **Bundle signing** — detached Ed25519 operator signature over the bundle; reuses the
   RoE signing key infrastructure. _(§8.1)_
 - **TLS enforcement** — non-loopback model endpoints and webhook URLs must be `https://`.
@@ -2391,7 +2392,7 @@ guardski backup --output <path>
 #   - All artifact directories (reports/, artifacts/)
 #   - Intel feed snapshots (state_dir/intel/, hash-pinned)
 #   - Config snapshot + digest
-#   - Credential store (encrypted; requires GUARDSKI_CREDENTIALS_KEY to restore)
+#   - Credential references (metadata only; values remain in the external backend)
 #   - The snapshot is a zip with manifest.json (hashes) + bundle signature if --sign
 ```
 
