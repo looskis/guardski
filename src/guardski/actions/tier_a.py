@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import socket
+import ssl
 import time
 import urllib.request
+from email.utils import parsedate_to_datetime
 
 from . import ActionRequest, ActionResult
 
@@ -35,6 +39,55 @@ class Transport:
         except OSError:
             return {"status": None, "server": ""}
 
+    def tls_inspect(self, host: str, port: int) -> dict:
+        try:
+            context = ssl.create_default_context()
+            with socket.create_connection((host, port), timeout=5) as sock:
+                with context.wrap_socket(sock, server_hostname=host) as tls:
+                    der = tls.getpeercert(binary_form=True)
+                    cert = tls.getpeercert()
+        except (OSError, ssl.SSLError):
+            return {}
+        return {
+            "subject": str(cert.get("subject", "")),
+            "issuer": str(cert.get("issuer", "")),
+            "not_before": _epoch(cert.get("notBefore")),
+            "not_after": _epoch(cert.get("notAfter")),
+            "sha256": hashlib.sha256(der or b"").hexdigest(),
+        }
+
+    def auth_check(self, url: str, credential: dict) -> dict:
+        if not credential:
+            return {"authenticated": False, "role_hint": "", "status": None}
+        user = credential.get("username", "")
+        token = f"{user}:{credential.get('value', '')}".encode()
+        header = "Basic " + base64.b64encode(token).decode()
+        request = urllib.request.Request(url, headers={"Authorization": header})
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                return {
+                    "authenticated": response.status < 400,
+                    "role_hint": credential.get("role", ""),
+                    "status": response.status,
+                }
+        except urllib.error.HTTPError as exc:
+            return {"authenticated": False, "role_hint": "", "status": exc.code}
+        except OSError:
+            return {"authenticated": False, "role_hint": "", "status": None}
+
+    def package_inventory(self, asset_id: str, method: str, credential: dict) -> dict:
+        # Fixed read-only commands per method; the operator must supply a transport.
+        raise NotImplementedError("package_inventory requires an operator-supplied transport")
+
+
+def _epoch(stamp: str | None) -> float | None:
+    if not stamp:
+        return None
+    try:
+        return parsedate_to_datetime(stamp).timestamp()
+    except (TypeError, ValueError):
+        return None
+
 
 def run_reachability(transport: Transport, request: ActionRequest) -> ActionResult:
     addr = str(request.parameters.get("addr") or (request.targets[0] if request.targets else ""))
@@ -59,3 +112,42 @@ def run_http_status(transport: Transport, request: ActionRequest) -> ActionResul
     path = str(request.parameters.get("path", "/"))
     result = transport.http_status(url, path)
     return ActionResult("succeeded", "http", facts=(("http_metadata", url, path, result),))
+
+
+def run_tls_inspect(transport: Transport, request: ActionRequest) -> ActionResult:
+    host = str(request.parameters.get("host") or (request.targets[0] if request.targets else ""))
+    port = int(request.parameters.get("port", 443))
+    result = transport.tls_inspect(host, port)
+    return ActionResult(
+        "succeeded" if result else "failed",
+        "tls" if result else "no_certificate",
+        facts=(("tls_certificate", host, port, result),) if result else (),
+    )
+
+
+def run_auth_check(transport: Transport, request: ActionRequest) -> ActionResult:
+    url = str(request.parameters.get("url") or (request.targets[0] if request.targets else ""))
+    credential = request.parameters.get("credential") or {}
+    result = transport.auth_check(url, credential)
+    return ActionResult(
+        "succeeded",
+        "authenticated" if result.get("authenticated") else "unauthenticated",
+        facts=(("auth_result", url, 0, result),),
+    )
+
+
+def run_package_inventory(transport: Transport, request: ActionRequest) -> ActionResult:
+    asset_id = request.asset_ids[0] if request.asset_ids else ""
+    method = str(request.parameters.get("method", "ssh"))
+    if method not in ("ssh", "winrm"):
+        return ActionResult("failed", "unknown_method")
+    credential = request.parameters.get("credential") or {}
+    result = transport.package_inventory(asset_id, method, credential)
+    facts = ()
+    for package in result.get("packages", []):
+        facts += (("sbom_component", asset_id, 0, package),)
+    for binding in result.get("bindings", []):
+        subject = f"{binding.get('addr')}:{binding.get('port')}/{binding.get('proto', 'tcp')}"
+        value = dict(binding, subject=subject)
+        facts += (("service_binding", binding.get("addr", ""), binding.get("port", 0), value),)
+    return ActionResult("succeeded", "inventory", facts=facts)

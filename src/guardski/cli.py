@@ -16,6 +16,7 @@ from . import compliance as compliance_mod
 from . import credentials as credentials_mod
 from . import ingest as ingest_mod
 from . import intel as intel_mod
+from . import metrics as metrics_mod
 from . import plans as plans_mod
 from . import roe as roe_mod
 from .agent import run
@@ -121,6 +122,8 @@ def parser() -> argparse.ArgumentParser:
     report = commands.add_parser("report", help="Render a compliance report pack")
     report.add_argument("--framework", choices=["pci", "ctem", "soc2"], required=True)
     report.add_argument("--output", required=True)
+    metrics_cmd = commands.add_parser("metrics", help="Discovery efficacy metrics")
+    metrics_cmd.add_argument("--since", type=float)
     return root
 
 
@@ -349,6 +352,8 @@ def main(argv: list[str] | None = None) -> int:
                 emit({"revoked": args.credential_id})
         elif args.command == "report":
             emit(compliance_mod.write_report(store, config, args.framework, args.output))
+        elif args.command == "metrics":
+            emit(metrics_mod.report(store, config, since=args.since))
         return 0
     except Exception as exc:
         print(f"guardski: {exc}", file=sys.stderr)

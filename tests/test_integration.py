@@ -179,3 +179,77 @@ def _action(store):
     )
     store.db.commit()
     return "a1"
+
+
+class FakeRecon:
+    def reachability(self, addr, port):
+        return {"tcp_connect": True, "latency_ms": 1.0}
+
+    def tls_inspect(self, host, port):
+        return {"subject": "CN=x", "issuer": "CN=ca", "sha256": "abc"}
+
+    def auth_check(self, url, credential):
+        return {"authenticated": True, "role_hint": "admin", "status": 200}
+
+    def package_inventory(self, asset_id, method, credential):
+        return {"packages": [{"purl": "pkg:deb/openssl", "version": "3.0"}]}
+
+
+def tls_roe():
+    return RoE(
+        id="r1",
+        issued_at=NOW - 10,
+        expires_at=NOW + 1000,
+        scope_allow=("10.0.0.0/24",),
+        max_tier="A",
+        discovery=True,
+        allowed_actions=("recon.tls_inspect", "recon.auth_check", "recon.package_inventory"),
+    )
+
+
+def test_tls_and_auth_facts(config, store):
+    from guardski.actions import ActionRequest
+    from guardski.actions.executor import execute
+
+    tls = ActionRequest(
+        action_id="recon.tls_inspect",
+        tier="A",
+        targets=("10.0.0.5",),
+        parameters={"host": "10.0.0.5", "port": 443},
+    )
+    assert (
+        execute(store, config, tls_roe(), tls, transport=FakeRecon(), now=NOW)["status"]
+        == "succeeded"
+    )
+    auth = ActionRequest(
+        action_id="recon.auth_check",
+        tier="A",
+        targets=("https://x",),
+        parameters={"url": "https://x", "credential": {"username": "a", "value": "b"}},
+    )
+    execute(store, config, tls_roe(), auth, transport=FakeRecon(), now=NOW)
+    kinds = {row[0] for row in store.db.execute("SELECT kind FROM asset_facts").fetchall()}
+    assert {"tls_certificate", "auth_result"} <= kinds
+
+
+def test_package_inventory_emits_binding_and_sbom(config, store):
+    from guardski.actions import ActionRequest
+    from guardski.actions.executor import execute
+
+    request = ActionRequest(
+        action_id="recon.package_inventory",
+        tier="A",
+        asset_ids=("asset:10.0.0.5",),
+        parameters={"method": "ssh", "credential": {"value": "x"}},
+    )
+    execute(store, config, tls_roe(), request, transport=FakeRecon(), now=NOW)
+    kinds = {row[0] for row in store.db.execute("SELECT kind FROM asset_facts").fetchall()}
+    assert "sbom_component" in kinds
+
+
+def test_metrics_report_over_events(config, store):
+    from guardski.metrics import report
+
+    data = report(store, config)
+    assert data["plans_generated"] == 0
+    assert "blind_spots" in data and "audit_chain_head" in data

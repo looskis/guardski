@@ -27,6 +27,9 @@ HANDLERS = {
     "confirm.http_status": tier_a.run_http_status,
     "recon.http_fingerprint": tier_a.run_http_status,
     "recon.sbom_match": _sbom_match,
+    "recon.tls_inspect": tier_a.run_tls_inspect,
+    "recon.auth_check": tier_a.run_auth_check,
+    "recon.package_inventory": tier_a.run_package_inventory,
 }
 
 
@@ -71,6 +74,42 @@ def _record_facts(store, request, action_id, result, now):
                 artifact_hash=digest,
                 observed_at=now,
                 source_action_id=action_id,
+            )
+        elif kind == "service_binding":
+            fact = facts_mod.record_binding(
+                asset_id,
+                value.get("subject") or subject,
+                package=value.get("package", ""),
+                installed_version=value.get("installed_version", ""),
+                artifact_hash=digest,
+                observed_at=now,
+                source_action_id=action_id,
+                process=value.get("process", ""),
+                evidence_hash=value.get("evidence_hash", ""),
+            )
+        elif kind == "tls_certificate":
+            fact = facts_mod.record_tls_certificate(
+                asset_id,
+                subject,
+                source_action_id=action_id,
+                artifact_hash=digest,
+                observed_at=now,
+                cert_subject=value.get("subject", ""),
+                issuer=value.get("issuer", ""),
+                not_before=value.get("not_before"),
+                not_after=value.get("not_after"),
+                sha256=value.get("sha256", ""),
+            )
+        elif kind == "auth_result":
+            fact = facts_mod.record_auth_result(
+                asset_id,
+                subject,
+                credential_id=value.get("credential_id", ""),
+                source_action_id=action_id,
+                artifact_hash=digest,
+                observed_at=now,
+                authenticated=bool(value.get("authenticated")),
+                role_hint=value.get("role_hint", ""),
             )
         else:
             fact = facts_mod.record_http_metadata(
