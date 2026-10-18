@@ -183,6 +183,7 @@ src/guardski/
   notify.py        # NEW — pluggable notification interface (Phase 2)
   credentials.py   # NEW — encrypted credential store, referenced by ID (Phase 2)
   compliance.py    # NEW — evidence → control mappings (Phase 4)
+  backup.py        # NEW backup/restore of the state directory
   ids.py           # NEW structural asset/fact ids
   events.py        # NEW event-kind registry
   redact.py        # NEW redaction filter
@@ -2456,7 +2457,7 @@ rotated, which is an operator decision outside the spec).
 
 Schema migrations are versioned via `PRAGMA user_version` (currently 1). The agentic
 layer adds tables and columns (§4.1.2, §4.1.3, §4.5, §4.10, §5.3, §5.7, §7.2, §7.3) and
-bumps to version 5 (v2 agentic tables, v3 credentials.ref, v4 asset_meta, v5 identity tables).
+bumps to version 7 (v2 agentic tables, v3 credentials.ref, v4 asset_meta, v5 identity, v6 plan evidence, v7 kill switch).
 
 - **Order matters.** The v2 migration creates the referenced tables before the referencing
   ones: `actions` and `runs.scan_digest` before `asset_facts(source_action_id)` and the
