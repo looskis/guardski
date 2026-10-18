@@ -20,8 +20,14 @@ Homebrew (macOS and Linux):
 
 ```sh
 brew install looskis/tap/guardski
-guardski --version
+guardski init
+guardski --config guardski.toml check
+guardski --config guardski.toml scan
 ```
+
+`guardski init` writes a commented starter config (one filesystem target, daily schedule);
+edit the targets before scanning anything you do not own. The formula installs Trivy,
+Nuclei, and Nmap alongside the CLI.
 
 From source:
 

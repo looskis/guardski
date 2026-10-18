@@ -4,6 +4,24 @@ All notable changes to Guardski are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-10-18
+
+### Added
+
+- `guardski init` writes a commented starter configuration with one filesystem target,
+  a daily schedule, and examples for rootfs and network targets.
+- The Homebrew formula now installs Trivy, Nuclei, and Nmap, so a fresh install can run
+  `check` and `scan` without extra setup.
+- Formula caveats cover the config step, privilege requirements, and the optional local
+  model endpoint.
+- CI installs the formula on Linux from the working tree, runs the CLI, `guardski init`,
+  `check`, and `brew test`.
+
+### Changed
+
+- Widened the optional `cryptography` constraint to `>=42`; the code works with current
+  releases, including the one Homebrew ships.
+
 ## [0.1.0] - 2026-10-18
 
 First public release: the deterministic scanning and evidence baseline plus the

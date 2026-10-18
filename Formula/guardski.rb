@@ -3,13 +3,16 @@ class Guardski < Formula
 
   desc "On-premises scheduled security scanning and audit evidence"
   homepage "https://github.com/looskis/guardski"
-  url "https://github.com/looskis/guardski/releases/download/v0.1.0/guardski-0.1.0.tar.gz"
-  sha256 "f5039198c167f8f038d512229dd8d22febd5d6bfaa95e1e5960d3b505a31c9d3"
+  url "https://github.com/looskis/guardski/releases/download/v0.1.1/guardski-0.1.1.tar.gz"
+  sha256 "f4c5afd9a2bb530931996ce0c8ce066e54355835bdba537cf85625eaff3e91de"
   license "AGPL-3.0-or-later"
   head "https://github.com/looskis/guardski.git", branch: "main"
 
   depends_on "cryptography" => :no_linkage
+  depends_on "nmap"
+  depends_on "nuclei"
   depends_on "python@3.15"
+  depends_on "trivy"
 
   # Build backend. Homebrew disables build isolation, so hatchling and its
   # dependencies have to be present in the virtualenv before the sdist builds.
@@ -71,6 +74,21 @@ class Guardski < Formula
 
   def install
     virtualenv_install_with_resources
+  end
+
+  def caveats
+    <<~EOS
+      Start with a configuration file:
+        guardski init
+        guardski --config guardski.toml check
+
+      Trivy, Nuclei, and Nmap are installed by this formula. UDP scans, OS
+      detection, and full host discovery need root; Tier-B proofs require a
+      signed RoE and an approved dry run.
+
+      Guardski is CLI-only in 0.1.x. Local model inference is optional: set
+      [model] provider = "openai" and endpoint to an OpenAI-compatible server.
+    EOS
   end
 
   test do

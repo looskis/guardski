@@ -17,3 +17,39 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run pytest
+  homebrew:
+    # Tags are covered by the Release workflow; this job validates the formula on Linux.
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install uv
+      - name: Build a local sdist
+        run: |
+          uv build --sdist
+          version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: Install the formula from the working tree
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          export HOMEBREW_NO_AUTO_UPDATE=1
+          sha="$(shasum -a 256 "dist/guardski-$VERSION.tar.gz" | cut -d' ' -f1)"
+          tap="$(brew --repo)/Library/Taps/looskis/homebrew-ci"
+          brew tap-new looskis/ci --no-git
+          mkdir -p "$tap/Formula"
+          sed -e "s|^  url \".*\"|url \"file://$PWD/dist/guardski-$VERSION.tar.gz\"|" \
+              -e "s|^  sha256 \".*\"|  sha256 \"$sha\"|" \
+              Formula/guardski.rb > "$tap/Formula/guardski.rb"
+          brew install --build-from-source looskis/ci/guardski
+          guardski --version
+          brew test looskis/ci/guardski
+      - name: Smoke test the CLI
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          work="$(mktemp -d)"
+          cd "$work"
+          guardski init
+          guardski --config guardski.toml check
