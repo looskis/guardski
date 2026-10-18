@@ -4,7 +4,7 @@ class Guardski < Formula
   desc "On-premises scheduled security scanning and audit evidence"
   homepage "https://github.com/looskis/guardski"
   url "https://github.com/looskis/guardski/releases/download/v0.1.1/guardski-0.1.1.tar.gz"
-  sha256 "f4c5afd9a2bb530931996ce0c8ce066e54355835bdba537cf85625eaff3e91de"
+  sha256 "4b19ebbb8a586bdbdbe3f1d1645e3fd71c048ba4b2b25265ec0425b041127054"
   license "AGPL-3.0-or-later"
   head "https://github.com/looskis/guardski.git", branch: "main"
 
