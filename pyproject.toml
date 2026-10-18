@@ -6,19 +6,27 @@ build-backend = "hatchling.build"
 name = "guardski"
 version = "0.1.0"
 description = "On-premises scheduled security scanning and audit evidence"
+readme = "README.md"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = ["croniter==6.2.4", "defusedxml==0.7.1"]
 
 [project.optional-dependencies]
 # Ed25519 RoE signing and bundle signing (SPEC §5.1, §8.1). Optional so the offline core
 # installs without it; signature paths raise a clear error when it is absent.
-signing = ["cryptography>=42,<46"]
+signing = ["cryptography>=42"]
 
 [project.scripts]
 guardski = "guardski.cli:main"
 
+[project.urls]
+Homepage = "https://github.com/looskis/guardski"
+Repository = "https://github.com/looskis/guardski"
+Issues = "https://github.com/looskis/guardski/issues"
+
 [dependency-groups]
-dev = ["pytest>=8,<10", "ruff>=0.14,<1"]
+dev = ["cryptography>=42", "pytest>=8,<10", "ruff>=0.14,<1"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

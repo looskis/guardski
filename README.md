@@ -14,6 +14,26 @@ in `src/guardski/` per [the system spec](docs/spec.md); it defaults off (`reason
 [coverage and audit readiness](docs/coverage.md) for implemented checks, explicit gaps, and
 proposed GitHub/source-code integrations.
 
+## Installation
+
+Homebrew (macOS and Linux):
+
+```sh
+brew install looskis/tap/guardski
+guardski --version
+```
+
+From source:
+
+```sh
+uv sync --locked
+uv run guardski --version
+```
+
+Both install the CLI only. Trivy, Nuclei, and Nmap remain separate binaries; see
+[Quick start](#quick-start). Guardski is licensed under the
+[GNU AGPL v3.0 or later](LICENSE).
+
 ## Implemented coverage
 
 | Target kind | Engine | Checks |

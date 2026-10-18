@@ -168,6 +168,7 @@ signing = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "cryptography" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -175,13 +176,14 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "croniter", specifier = "==6.2.4" },
-    { name = "cryptography", marker = "extra == 'signing'", specifier = ">=42,<46" },
+    { name = "cryptography", marker = "extra == 'signing'", specifier = ">=42" },
     { name = "defusedxml", specifier = "==0.7.1" },
 ]
 provides-extras = ["signing"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "cryptography", specifier = ">=42" },
     { name = "pytest", specifier = ">=8,<10" },
     { name = "ruff", specifier = ">=0.14,<1" },
 ]

@@ -1,0 +1,120 @@
+name: Release
+
+# Triggered by pushing a tag such as v0.1.0 (scripts/release.sh does this).
+# Runs the full check suite, builds the sdist and wheel, publishes a GitHub release with
+# SHA256SUMS and a formula carrying the real sha256, and (when TAP_GITHUB_TOKEN is set)
+# opens and merges the formula update in looskis/homebrew-tap. Without the token, run
+# scripts/update-tap.sh after the release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.ref_name }}
+      TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+      TAP_REPO: looskis/homebrew-tap
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: python -m pip install uv
+
+      - name: Check tag matches pyproject version
+        run: |
+          version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          if [ "v$version" != "$TAG" ]; then
+            echo "tag $TAG does not match pyproject.toml ($version)"; exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Check suite
+        run: |
+          uv sync --locked
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run pytest
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Formula with release sha256
+        run: |
+          sha="$(shasum -a 256 "dist/guardski-$VERSION.tar.gz" | cut -d' ' -f1)"
+          sed -i \
+            -e "s|/releases/download/v[0-9.]*/guardski-[0-9.]*\.tar\.gz|/releases/download/$TAG/guardski-$VERSION.tar.gz|" \
+            -e "s|^  sha256 \".*\"|  sha256 \"$sha\"|" Formula/guardski.rb
+          brew style Formula/guardski.rb
+          cp Formula/guardski.rb dist/guardski.rb
+          {
+            echo "## Homebrew formula"
+            echo
+            echo "sdist sha256: \`$sha\`"
+            echo
+            echo '```ruby'; cat Formula/guardski.rb; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Checksums
+        run: |
+          cd dist
+          shasum -a 256 "guardski-$VERSION.tar.gz" "guardski-$VERSION-py3-none-any.whl" > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Release notes
+        run: |
+          awk -v v="$VERSION" '
+            /^## / { if (found) exit; found = ($0 ~ "\\[" v "\\]") ; next }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "Guardski $VERSION" > notes.md
+          cat >> notes.md <<MD
+
+          ## Install
+
+          \`\`\`sh
+          brew install looskis/tap/guardski
+          \`\`\`
+
+          Or download the sdist/wheel below and install with \`pip install guardski-$VERSION-py3-none-any.whl\`.
+          MD
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$TAG" \
+            "dist/guardski-$VERSION.tar.gz" \
+            "dist/guardski-$VERSION-py3-none-any.whl" \
+            dist/SHA256SUMS \
+            dist/guardski.rb \
+            --title "Guardski $VERSION" \
+            --notes-file notes.md
+
+      - name: Update Homebrew tap
+        if: env.TAP_GITHUB_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ env.TAP_GITHUB_TOKEN }}
+        run: |
+          git clone "https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/${TAP_REPO}.git" tap
+          cp dist/guardski.rb tap/Formula/guardski.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          branch="guardski-$VERSION"
+          git checkout -b "$branch"
+          git add Formula/guardski.rb
+          git commit -m "guardski $VERSION"
+          git push origin "$branch"
+          gh pr create --repo "$TAP_REPO" --head "$branch" \
+            --title "guardski $VERSION" \
+            --body "Formula for Guardski $VERSION, published from $TAG."
+          gh pr merge --repo "$TAP_REPO" "$branch" --squash
