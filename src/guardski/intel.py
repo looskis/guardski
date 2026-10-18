@@ -208,9 +208,7 @@ def fetch(kind, url, output_dir, expected_sha256=None, timeout=60, now=None):
         data = response.read()
     digest = hashlib.sha256(data).hexdigest()
     if expected_sha256 and digest != expected_sha256:
-        raise ValueError(
-            f"intel fetch hash mismatch: expected {expected_sha256} got {digest}"
-        )
+        raise ValueError(f"intel fetch hash mismatch: expected {expected_sha256} got {digest}")
     directory = Path(output_dir)
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{kind}-{digest[:16]}{_SUFFIX[kind]}"

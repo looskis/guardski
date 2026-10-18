@@ -180,6 +180,16 @@ SCHEMA_V2 = """
 """
 
 
+SCHEMA_V4 = """
+    CREATE TABLE IF NOT EXISTS asset_meta (
+        asset_id TEXT PRIMARY KEY,
+        owner TEXT, criticality TEXT, environment TEXT, data_classification TEXT,
+        tags_json TEXT NOT NULL DEFAULT '[]',
+        source TEXT, imported_at REAL NOT NULL, imported_by TEXT NOT NULL
+    );
+"""
+
+
 def canonical(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
@@ -193,13 +203,15 @@ class Store:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA foreign_keys=ON")
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1, 2, 3):
+        if version not in (0, 1, 2, 3, 4):
             raise ValueError(f"Unsupported database schema version: {version}")
         self.db.executescript(SCHEMA_V1)
         if version < 2:
             self._migrate_v2(from_version=version)
         if version < 3:
             self._migrate_v3(from_version=2 if version >= 1 else 0)
+        if version < 4:
+            self._migrate_v4(from_version=3 if version >= 1 else 0)
 
     def _migrate_v2(self, from_version: int) -> None:
         with self.db:
@@ -215,6 +227,13 @@ class Store:
             self.db.execute("PRAGMA user_version=3")
             if from_version >= 1:
                 self.event("schema_migrated", {"from_version": from_version, "to_version": 3})
+
+    def _migrate_v4(self, from_version: int) -> None:
+        with self.db:
+            self.db.executescript(SCHEMA_V4)
+            self.db.execute("PRAGMA user_version=4")
+            if from_version >= 1:
+                self.event("schema_migrated", {"from_version": from_version, "to_version": 4})
 
     def close(self) -> None:
         self.db.close()

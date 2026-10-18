@@ -67,6 +67,7 @@ AGENTIC_FIELDS: dict[str, tuple[str, ...]] = {
     "intel_imported": ("source", "source_version", "sha256", "records"),
     "intel_relevant": ("source", "cve"),
     "findings_imported": ("target_id", "tool", "count"),
+    "assets_imported": ("count",),
     # actions / policy
     "action_authorized": ("action_id", "roe_id", "targets"),
     "action_denied": ("action_id", "reason_code"),

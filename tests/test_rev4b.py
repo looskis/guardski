@@ -92,3 +92,26 @@ def test_cli_sign(tmp_path, capsys):
     assert main(["sign", "hello", "--key", str(key)]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["fingerprint"] == signing.fingerprint(public)
+
+
+def test_cmdb_import_merges_into_graph(config, store, tmp_path):
+    from dataclasses import replace
+
+    from guardski.cmdb import import_assets
+    from guardski.graph import build_graph
+
+    target = replace(config.targets[0], host="10.0.0.5")
+    host_config = replace(config, targets=(target,))
+    store.start("r1", target, host_config)
+    store.finish("r1", target, host_config, [], {}, "", None)
+    csv_path = tmp_path / "cmdb.csv"
+    csv_path.write_text(
+        'asset_id,criticality,environment,tags\nasset:10.0.0.5,critical,production,"payment,pii"\n'
+    )
+    result = import_assets(store, csv_path, "operator")
+    assert result["imported"] == 1
+    built = build_graph(store, host_config, now=1000.0)
+    node = next(n for n in built.nodes if n["id"] == "asset:10.0.0.5")
+    assert node["attributes"]["criticality"] == "critical"
+    assert "payment" in node["attributes"]["tags"]
+    assert any(e["kind"] == "asset_has_impact" for e in built.edges)

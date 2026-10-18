@@ -170,6 +170,8 @@ def build_graph(
         if fact["kind"] == "service_binding":
             bindings.setdefault(fact["asset_id"], []).append(fact)
 
+    meta = {row["asset_id"]: dict(row) for row in store.db.execute("SELECT * FROM asset_meta")}
+
     nodes: list[dict] = []
     edges: list[dict] = []
     assets: set[str] = set()
@@ -187,24 +189,31 @@ def build_graph(
         if asset_id in assets:
             return
         assets.add(asset_id)
+        override = meta.get(asset_id, {})
+        imported_tags = json.loads(override["tags_json"]) if override.get("tags_json") else []
+        tags = imported_tags or list(target.tags)
+        owner = override.get("owner") or target.owner
+        criticality = override.get("criticality") or target.criticality
+        environment = override.get("environment") or target.environment
+        classification = override.get("data_classification") or target.data_classification
         add_node(
             asset_id,
             "asset",
             addr=(target.host or target.value if target.kind != "network" else None),
             target_id=target.id,
-            owner=target.owner,
+            owner=owner,
             kind=target.kind,
-            criticality=target.criticality,
-            environment=target.environment,
-            tags=list(target.tags),
-            data_classification=target.data_classification,
+            criticality=criticality,
+            environment=environment,
+            tags=list(tags),
+            data_classification=classification,
             in_scope=True,
             coverage=coverage,
             blind_spots=coverage["blind_spots"],
         )
-        for tag in target.tags:
+        for tag in tags:
             impact = ids.impact_id(asset_id, tag)
-            add_node(impact, "impact", kind=tag, sensitivity=target.data_classification)
+            add_node(impact, "impact", kind=tag, sensitivity=classification)
             edges.append(
                 {"kind": "asset_has_impact", "src": asset_id, "dst": impact, "attributes": {}}
             )

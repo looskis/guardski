@@ -12,6 +12,7 @@ from pathlib import Path
 from threading import Event
 
 from . import __version__
+from . import cmdb as cmdb_mod
 from . import compliance as compliance_mod
 from . import credentials as credentials_mod
 from . import ingest as ingest_mod
@@ -134,6 +135,10 @@ def parser() -> argparse.ArgumentParser:
     sign_cmd = commands.add_parser("sign", help="Sign a message with the operator key")
     sign_cmd.add_argument("message")
     sign_cmd.add_argument("--key", required=True, type=Path)
+    assets_cmd = commands.add_parser("assets", help="Import offline asset metadata (CMDB)")
+    assets_cmd.add_argument("action", choices=["import"])
+    assets_cmd.add_argument("file")
+    assets_cmd.add_argument("--actor", required=True)
     return root
 
 
@@ -405,6 +410,8 @@ def main(argv: list[str] | None = None) -> int:
                 emit({"revoked": args.credential_id})
         elif args.command == "report":
             emit(compliance_mod.write_report(store, config, args.framework, args.output))
+        elif args.command == "assets":
+            emit(cmdb_mod.import_assets(store, args.file, args.actor))
         elif args.command == "metrics":
             emit(metrics_mod.report(store, config, since=args.since))
         return 0
