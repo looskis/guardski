@@ -183,6 +183,19 @@ src/guardski/
   notify.py        # NEW — pluggable notification interface (Phase 2)
   credentials.py   # NEW — encrypted credential store, referenced by ID (Phase 2)
   compliance.py    # NEW — evidence → control mappings (Phase 4)
+  ids.py           # NEW structural asset/fact ids
+  events.py        # NEW event-kind registry
+  redact.py        # NEW redaction filter
+  plans.py         # NEW plan approval/revalidation/gates
+  runner.py        # NEW daemon reasoning runner
+  retention.py     # NEW retention purge job
+  metrics.py       # NEW efficacy metrics
+  signing.py       # NEW Ed25519 signer seam
+  cmdb.py          # NEW offline asset-metadata import
+  identity.py      # NEW offline identity import
+  actions/executor.py  # dispatcher: authorize -> execute -> facts -> feedback
+  actions/limiter.py   # concurrency semaphore + rate bucket
+  providers/_schema.py # minimal JSON-schema validator
 ```
 
 ## 4. Phase 1 — Agentic reasoning (no target action)
@@ -2214,8 +2227,8 @@ trusts = ["identity-provider-01"]   # operator-declared asset_trusts_asset edges
 
 ## 12. Decisions
 
-No product decisions are currently open. Items below marked _(to build)_ are decided but
-not yet reflected in code or in the sections they reference.
+No product decisions are currently open, and every item below is reflected in code or in
+the section it references.
 
 **Resolved (2026-11-01, revision 4 — product decisions):**
 1. **Module naming** — `agent.py` is renamed `scheduler.py` (done). "Agent" means the
@@ -2246,18 +2259,18 @@ not yet reflected in code or in the sections they reference.
    is still policy-checked and audit-logged without per-task approval. _(§5.1)_
 10. **Intel feeds** — operator import remains the only path. Add `guardski intel fetch` for
     a connected staging host that writes a hash-pinned bundle to carry across the air gap.
-    The project neither redistributes nor mirrors feeds. _(§4.1.3; to build)_
+    The project neither redistributes nor mirrors feeds. _(§4.1.3)_
 11. **Asset criticality** — operator-maintained config plus an offline CSV/JSON import for
-    CMDB exports. No live CMDB connector. _(§10; import to build)_
+    CMDB exports. No live CMDB connector. _(§10)_
 12. **Local structured output** — officially supported: vLLM and llama.cpp (JSON schema /
     grammar) and Ollama (`format` with a JSON schema). Other servers may use `prompt_only`
     with one repair turn, recorded in the audit log as weaker enforcement. Invalid output is
     rejected, never coerced. _(§4.2.2)_
 13. **Identity graph** — in v1, read-only: import an offline Entra ID/AD export (roles,
     groups, conditional-access policies, cross-tenant settings) as graph nodes and edges for
-    reasoning. No identity actions and no live tenant connection. _(§4.1; to build)_
+    reasoning. No identity actions and no live tenant connection. _(§4.1)_
 14. **Ingestion priority** — next imports are GitHub code-scanning and Dependabot alerts,
-    then Grype/OSV-Scanner. ZAP/API scanners are not planned (see 16). _(§4.1.4; to build)_
+    then Grype/OSV-Scanner. ZAP/API scanners are not planned (see 16). _(§4.1.4)_
 15. **Efficacy thresholds** — the design partner bar is ≥50% of plans approved, ≥30% of
     hypotheses confirmed or disproved by machine evidence, and ≤10% false positives among
     confirmed findings. _(§11.19, §14.4)_
@@ -2443,7 +2456,7 @@ rotated, which is an operator decision outside the spec).
 
 Schema migrations are versioned via `PRAGMA user_version` (currently 1). The agentic
 layer adds tables and columns (§4.1.2, §4.1.3, §4.5, §4.10, §5.3, §5.7, §7.2, §7.3) and
-bumps to version 3 (v2 agentic tables, v3 adds credentials.ref).
+bumps to version 5 (v2 agentic tables, v3 credentials.ref, v4 asset_meta, v5 identity tables).
 
 - **Order matters.** The v2 migration creates the referenced tables before the referencing
   ones: `actions` and `runs.scan_digest` before `asset_facts(source_action_id)` and the
