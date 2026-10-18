@@ -210,6 +210,11 @@ SCHEMA_V6 = """
 """
 
 
+SCHEMA_V7 = """
+    ALTER TABLE runtime ADD COLUMN abort_requested REAL;
+"""
+
+
 def canonical(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
@@ -223,7 +228,7 @@ class Store:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA foreign_keys=ON")
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1, 2, 3, 4, 5, 6):
+        if version not in (0, 1, 2, 3, 4, 5, 6, 7):
             raise ValueError(f"Unsupported database schema version: {version}")
         self.db.executescript(SCHEMA_V1)
         if version < 2:
@@ -236,6 +241,8 @@ class Store:
             self._migrate_v5(from_version=4 if version >= 1 else 0)
         if version < 6:
             self._migrate_v6(from_version=5 if version >= 1 else 0)
+        if version < 7:
+            self._migrate_v7(from_version=6 if version >= 1 else 0)
 
     def _migrate_v2(self, from_version: int) -> None:
         with self.db:
@@ -272,6 +279,13 @@ class Store:
             self.db.execute("PRAGMA user_version=6")
             if from_version >= 1:
                 self.event("schema_migrated", {"from_version": from_version, "to_version": 6})
+
+    def _migrate_v7(self, from_version: int) -> None:
+        with self.db:
+            self.db.executescript(SCHEMA_V7)
+            self.db.execute("PRAGMA user_version=7")
+            if from_version >= 1:
+                self.event("schema_migrated", {"from_version": from_version, "to_version": 7})
 
     def close(self) -> None:
         self.db.close()
@@ -323,6 +337,25 @@ class Store:
                 circuit_opened_at=excluded.circuit_opened_at""",
                 (time.time(), state, failures, opened_at),
             )
+
+    def request_abort(self, actor: str = "operator", now: float | None = None) -> None:
+        now = time.time() if now is None else now
+        with self.db:
+            self.db.execute(
+                """INSERT INTO runtime(id, heartbeat, running, abort_requested)
+                VALUES (1, ?, 1, ?) ON CONFLICT(id) DO UPDATE SET
+                abort_requested=excluded.abort_requested""",
+                (now, now),
+            )
+            self.event("abort_requested", {"actor": actor}, actor)
+
+    def abort_requested(self) -> float | None:
+        row = self.db.execute("SELECT abort_requested FROM runtime WHERE id=1").fetchone()
+        return row["abort_requested"] if row else None
+
+    def clear_abort(self) -> None:
+        with self.db:
+            self.db.execute("UPDATE runtime SET abort_requested=NULL WHERE id=1")
 
     def sync_jobs(self, config: Config, now: float) -> None:
         with self.db:

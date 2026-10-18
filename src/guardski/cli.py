@@ -94,8 +94,23 @@ def parser() -> argparse.ArgumentParser:
     discover.add_argument("--dry-run", action="store_true")
     inv = commands.add_parser("investigations", help="List long-lived hypotheses")
     inv.add_argument("--status", default="open")
-    commands.add_parser("facts", help="List recorded asset facts")
-    commands.add_parser("tasks", help="List proposed discovery tasks")
+    facts_cmd = commands.add_parser("facts", help="List or import recorded asset facts")
+    facts_cmd.add_argument("action", nargs="?", choices=["import"])
+    facts_cmd.add_argument("file", nargs="?")
+    facts_cmd.add_argument("--target")
+    facts_cmd.add_argument("--actor")
+    tasks_cmd = commands.add_parser("tasks", help="Discovery request queue")
+    tasks_cmd.add_argument("action", nargs="?", choices=["deny", "expire"])
+    tasks_cmd.add_argument("task_id", nargs="?")
+    tasks_cmd.add_argument("--actor")
+    tasks_cmd.add_argument("--reason")
+    commands.add_parser("abort", help="Kill switch: abort further actions").add_argument(
+        "--actor", default="operator"
+    )
+    validate_cmd = commands.add_parser("validate", help="Run Tier-A validation for a plan")
+    validate_cmd.add_argument("--plan", required=True)
+    validate_cmd.add_argument("--actor", default="operator")
+    validate_cmd.add_argument("--dry-run", action="store_true")
     intel = commands.add_parser("intel", help="Offline vulnerability intelligence")
     intel.add_argument("action", choices=["import", "status", "fetch"])
     intel.add_argument("file", nargs="?")
@@ -293,14 +308,128 @@ def main(argv: list[str] | None = None) -> int:
             )
             emit({"model_id": config.model.model_id, "endpoint": config.model.endpoint})
         elif args.command == "facts":
-            emit(store.list_facts())
+            if args.action == "import":
+                import time as _time
+                import uuid as _uuid
+
+                from . import facts as facts_mod
+
+                if not args.file or not args.actor:
+                    raise ValueError("facts import requires a file and --actor")
+                records = json.loads(Path(args.file).read_text())
+                action_id = str(_uuid.uuid4())
+                with store.db:
+                    store.db.execute(
+                        "INSERT INTO actions (id,action_id,tier,roe_id,targets_json,"
+                        "parameters_json,decision,status,requested_by) "
+                        "VALUES (?,?,?,?,?,?,?,?,?)",
+                        (
+                            action_id,
+                            "operator.import",
+                            "A",
+                            "operator",
+                            "[]",
+                            "{}",
+                            "ALLOW",
+                            "succeeded",
+                            args.actor,
+                        ),
+                    )
+                count = 0
+                for record in records:
+                    fact = facts_mod.record_binding(
+                        record["asset_id"],
+                        record["subject"],
+                        package=record.get("package", ""),
+                        installed_version=record.get("installed_version", ""),
+                        artifact_hash=record["artifact_hash"],
+                        observed_at=_time.time(),
+                        source_action_id=action_id,
+                    )
+                    store.record_fact(fact)
+                    count += 1
+                emit({"imported": count})
+            else:
+                emit(store.list_facts())
         elif args.command == "tasks":
-            emit(
-                [
-                    dict(row)
-                    for row in store.db.execute("SELECT * FROM scan_tasks ORDER BY created_at")
-                ]
-            )
+            if args.action == "deny":
+                if not args.task_id or not args.actor or not args.reason:
+                    raise ValueError("tasks deny requires a task id, --actor, and --reason")
+                with store.db:
+                    store.db.execute(
+                        "UPDATE scan_tasks SET state='denied', error=? WHERE id=?",
+                        (args.reason, args.task_id),
+                    )
+                    store.event(
+                        "scan_task_denied",
+                        {"task_id": args.task_id, "reason_code": "operator_denied"},
+                    )
+                emit({"task_id": args.task_id, "state": "denied"})
+            elif args.action == "expire":
+                import time as _time
+
+                cutoff = _time.time() - config.agent.task_ttl_minutes * 60
+                rows = store.db.execute(
+                    "SELECT id FROM scan_tasks WHERE state IN ('proposed','authorized') "
+                    "AND created_at < ?",
+                    (cutoff,),
+                ).fetchall()
+                with store.db:
+                    for row in rows:
+                        store.db.execute(
+                            "UPDATE scan_tasks SET state='expired' WHERE id=?", (row["id"],)
+                        )
+                        store.event("scan_task_expired", {"task_id": row["id"]})
+                emit({"expired": len(rows)})
+            else:
+                emit(
+                    [
+                        dict(row)
+                        for row in store.db.execute("SELECT * FROM scan_tasks ORDER BY created_at")
+                    ]
+                )
+        elif args.command == "abort":
+            store.request_abort(args.actor)
+            emit({"aborted": True})
+        elif args.command == "validate":
+            import time as _time
+
+            from .actions import CATALOG, ActionRequest
+            from .actions.executor import execute as execute_action
+            from .policy import authorize
+            from .roe import load_roe
+
+            row = store.db.execute("SELECT * FROM plans WHERE id=?", (args.plan,)).fetchone()
+            if row is None:
+                raise ValueError("Unknown plan")
+            data = json.loads(row["data_json"])
+            roe = load_roe(Path(config.roe.path))
+            results = []
+            for step in data.get("steps", []):
+                action = step.get("proposed_action")
+                if action == "narrative_only" or action not in CATALOG:
+                    continue
+                request = ActionRequest(
+                    action_id=action,
+                    tier=CATALOG[action]["tier"],
+                    targets=tuple(step.get("targets", [])),
+                    asset_ids=tuple(step.get("asset_ids", [])),
+                    parameters=step.get("parameters", {}),
+                    plan_id=args.plan,
+                    step_ordinal=step.get("ordinal"),
+                )
+                if args.dry_run:
+                    decision = authorize(request, roe, _time.time(), max_tier=config.agent.max_tier)
+                    results.append(
+                        {
+                            "action": action,
+                            "allowed": decision.allowed,
+                            "reason": decision.reason_code,
+                        }
+                    )
+                else:
+                    results.append(execute_action(store, config, roe, request))
+            emit(results)
         elif args.command == "investigations":
             emit(
                 [

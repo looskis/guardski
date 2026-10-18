@@ -281,3 +281,47 @@ def test_retention_purges_actions(config, store):
             (old,),
         )
     assert purge(store, config, now=NOW)["actions"] == 1
+
+
+def test_abort_blocks_actions(config, store):
+    from guardski.actions import ActionRequest
+    from guardski.actions.executor import execute
+    from guardski.roe import RoE
+
+    store.request_abort("operator")
+    policy_roe = RoE(
+        id="r",
+        issued_at=0,
+        expires_at=NOW + 10000,
+        scope_allow=("10.0.0.0/24",),
+        max_tier="A",
+        allowed_actions=("confirm.reachability",),
+    )
+    request = ActionRequest(
+        action_id="confirm.reachability",
+        tier="A",
+        targets=("10.0.0.5",),
+        parameters={"addr": "10.0.0.5", "port": 443},
+    )
+    assert execute(store, config, policy_roe, request, now=NOW)["status"] == "aborted"
+
+
+def test_invalid_parameters_are_rejected(config, store):
+    from guardski.actions import ActionRequest
+    from guardski.actions.executor import execute
+    from guardski.roe import RoE
+
+    policy_roe = RoE(
+        id="r",
+        issued_at=0,
+        expires_at=NOW + 10000,
+        scope_allow=("10.0.0.0/24",),
+        max_tier="A",
+        allowed_actions=("confirm.reachability",),
+    )
+    request = ActionRequest(
+        action_id="confirm.reachability", tier="A", targets=("10.0.0.5",), parameters={}
+    )
+    result = execute(store, config, policy_roe, request, now=NOW)
+    assert result["status"] == "failed"
+    assert "invalid_parameters" in result["detail"]

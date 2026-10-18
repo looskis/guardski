@@ -38,6 +38,85 @@ def _register(spec: ActionSpec) -> None:
 
 
 OBJECT = {"type": "object"}
+SCHEMAS = {
+    "recon.nmap_rescan": {
+        "type": "object",
+        "required": ["ports"],
+        "properties": {"ports": {"type": "string"}, "service_detection": {"type": "boolean"}},
+        "additionalProperties": False,
+    },
+    "recon.nuclei_targeted": {
+        "type": "object",
+        "required": ["targets"],
+        "properties": {
+            "targets": {"type": "array", "items": {"type": "string"}},
+            "template_ids": {"type": "array", "items": {"type": "string"}},
+            "tags": {"type": "array", "items": {"type": "string"}},
+        },
+        "additionalProperties": False,
+    },
+    "recon.http_fingerprint": {
+        "type": "object",
+        "required": ["url"],
+        "properties": {"url": {"type": "string"}, "method": {"enum": ["GET", "HEAD"]}},
+        "additionalProperties": False,
+    },
+    "recon.tls_inspect": {
+        "type": "object",
+        "required": ["host", "port"],
+        "properties": {"host": {"type": "string"}, "port": {"type": "integer"}},
+        "additionalProperties": False,
+    },
+    "recon.sbom_match": {
+        "type": "object",
+        "required": ["package"],
+        "properties": {
+            "asset_id": {"type": "string"},
+            "asset_ids": {"type": "array", "items": {"type": "string"}},
+            "package": {"type": "string"},
+            "version": {"type": "string"},
+        },
+        "additionalProperties": False,
+    },
+    "recon.auth_check": {
+        "type": "object",
+        "required": ["url"],
+        "properties": {
+            "url": {"type": "string"},
+            "credential_id": {"type": "string"},
+            "credential": {"type": "object"},
+        },
+        "additionalProperties": False,
+    },
+    "recon.package_inventory": {
+        "type": "object",
+        "required": ["method"],
+        "properties": {
+            "asset_id": {"type": "string"},
+            "method": {"enum": ["ssh", "winrm"]},
+            "credential": {"type": "object"},
+        },
+        "additionalProperties": False,
+    },
+    "confirm.reachability": {
+        "type": "object",
+        "required": ["addr", "port"],
+        "properties": {"addr": {"type": "string"}, "port": {"type": "integer"}},
+        "additionalProperties": False,
+    },
+    "confirm.banner": {
+        "type": "object",
+        "required": ["addr", "port"],
+        "properties": {"addr": {"type": "string"}, "port": {"type": "integer"}},
+        "additionalProperties": False,
+    },
+    "confirm.http_status": {
+        "type": "object",
+        "required": ["url", "path"],
+        "properties": {"url": {"type": "string"}, "path": {"type": "string"}},
+        "additionalProperties": False,
+    },
+}
 RECON_SPECS = (
     _spec("recon.nmap_rescan", "A", OBJECT, True, True),
     _spec("recon.nuclei_targeted", "A", OBJECT, True, True),
@@ -63,6 +142,10 @@ PROVE_SPECS = (
 
 for _action in PROVE_SPECS:
     _register(_action)
+
+for _action_id, _schema in SCHEMAS.items():
+    if _action_id in CATALOG:
+        CATALOG[_action_id]["parameter_schema"] = _schema
 
 
 @dataclass(frozen=True)

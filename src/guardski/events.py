@@ -75,6 +75,7 @@ AGENTIC_FIELDS: dict[str, tuple[str, ...]] = {
     "action_started": ("action_id",),
     "action_completed": ("action_id", "status"),
     "action_deconflicted": ("action_id", "conflicting_action_id"),
+    "abort_requested": ("actor",),
     "monitor_anomaly": ("action_id", "signal_kind", "observed_value", "threshold", "aborted"),
     "finding_validated": ("finding_id",),
     "finding_refuted": ("finding_id",),

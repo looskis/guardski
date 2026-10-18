@@ -10,8 +10,19 @@ from .. import facts as facts_mod
 from .. import ids
 from .. import notify as notify_mod
 from ..policy import authorize
+from ..providers import _schema
 from . import CATALOG, ActionResult, tier_a
+from .limiter import ConcurrencyLimiter
 from .monitor import ExecutionMonitor
+
+_LIMITERS = {}
+
+
+def _limiter(config):
+    key = (config.agent.max_concurrency, config.agent.max_actions_per_minute)
+    if key not in _LIMITERS:
+        _LIMITERS[key] = ConcurrencyLimiter(*key)
+    return _LIMITERS[key]
 
 
 def _sbom_match(transport, request, secrets=None):
@@ -157,6 +168,8 @@ def execute(
     catalog=None,
 ):
     now = time.time() if now is None else now
+    if store.abort_requested() is not None:
+        return {"status": "aborted", "reason": "kill_switch"}
     catalog = CATALOG if catalog is None else catalog
     transport = transport or tier_a.Transport()
     decision = authorize(
@@ -245,13 +258,21 @@ def execute(
         except credentials_mod.CredentialError:
             secrets[credential_id] = None
     handler = HANDLERS.get(request.action_id)
-    if handler is None:
+    spec = catalog.get(request.action_id, {})
+    errors = _schema.validate(request.parameters, spec.get("parameter_schema", {}))
+    if errors:
+        result = ActionResult("failed", "invalid_parameters: " + "; ".join(errors))
+    elif handler is None:
         result = ActionResult("failed", "unsupported_action")
     else:
+        limiter = _limiter(config)
+        limiter.acquire()
         try:
             result = handler(transport, request, secrets)
         except Exception as exc:  # noqa: BLE001 - a failed probe must be recorded, not crash
             result = ActionResult("failed", f"{type(exc).__name__}: {exc}")
+        finally:
+            limiter.release()
     out_facts = _record_facts(store, request, action_row, result, now) if result.facts else []
     outcome = None
     if result.detail == "reachable" and request.finding_ids:
