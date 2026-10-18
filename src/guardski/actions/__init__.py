@@ -64,6 +64,7 @@ class ActionRequest:
     parameters: dict = field(default_factory=dict)
     intensity: int = 1
     credential_ids: tuple[str, ...] = ()
+    finding_ids: tuple[str, ...] = ()
     plan_id: str | None = None
     step_ordinal: int | None = None
     task_id: str | None = None

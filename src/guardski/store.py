@@ -505,6 +505,55 @@ class Store:
             item["provenance"] = json.loads(item.pop("provenance_json"))
         return sorted(newest.values(), key=lambda f: (f["asset_id"], f["kind"], f["subject"]))
 
+    def apply_action_result(self, finding_ids, outcome, action_id, now=None):
+        now = time.time() if now is None else now
+        event_map = {
+            "confirmed": "finding_validated",
+            "refuted": "finding_refuted",
+            "proof_succeeded": "finding_exploit_confirmed",
+            "cleanup_failed": "finding_cleanup_failed",
+            "failed": "finding_action_failed",
+        }
+        with self.db:
+            for fid in finding_ids:
+                row = self.db.execute("SELECT * FROM findings WHERE id=?", (fid,)).fetchone()
+                if row is None:
+                    continue
+                if outcome == "confirmed":
+                    self.db.execute(
+                        """UPDATE findings SET last_validated_at=?,
+                        validation_count=validation_count+1 WHERE id=?""",
+                        (now, fid),
+                    )
+                elif outcome == "refuted":
+                    status = row["status"]
+                    if status == "open":
+                        status = "in_progress"
+                    refutations = (row["false_positive_count"] or 0) + 1
+                    if refutations >= 3 and row["coverage_verified"]:
+                        status = "resolved"
+                    self.db.execute(
+                        "UPDATE findings SET false_positive_count=?, status=? WHERE id=?",
+                        (refutations, status, fid),
+                    )
+                elif outcome == "proof_succeeded":
+                    self.db.execute(
+                        """UPDATE findings SET status='in_progress', exploited_confirmed_at=?,
+                        proof_action_id=? WHERE id=?""",
+                        (now, action_id, fid),
+                    )
+                elif outcome == "cleanup_failed":
+                    self.db.execute("UPDATE findings SET status='in_progress' WHERE id=?", (fid,))
+                elif outcome == "failed":
+                    self.db.execute(
+                        """UPDATE findings SET last_action_failed_at=?,
+                        failure_count=failure_count+1 WHERE id=?""",
+                        (now, fid),
+                    )
+                kind = event_map.get(outcome)
+                if kind:
+                    self.event(kind, {"finding_id": fid, "action_id": action_id})
+
     def triage(
         self,
         fid: str,

@@ -86,9 +86,10 @@ def record_banner(
     asset_id: str,
     subject: str,
     *,
-    source_run_id: str,
     artifact_hash: str,
     observed_at: float,
+    source_run_id: str | None = None,
+    source_action_id: str | None = None,
     product: str = "",
     version: str = "",
     banner_sha256: str = "",
@@ -97,15 +98,21 @@ def record_banner(
     value = {"product": product, "version": version, "banner_sha256": banner_sha256}
     if extra:
         value.update(extra)
+    provenance = (
+        {"origin": "action", "action_id": source_action_id}
+        if source_action_id
+        else {"origin": "scanner", "run_id": source_run_id}
+    )
     return _make(
         "service_banner",
         asset_id,
         subject,
         value,
-        provenance={"origin": "scanner", "run_id": source_run_id},
+        provenance=provenance,
         artifact_hash=artifact_hash,
         observed_at=observed_at,
         source_run_id=source_run_id,
+        source_action_id=source_action_id,
     )
 
 
