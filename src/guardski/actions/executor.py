@@ -8,6 +8,7 @@ import uuid
 from .. import credentials as credentials_mod
 from .. import facts as facts_mod
 from .. import ids
+from .. import notify as notify_mod
 from ..policy import authorize
 from . import CATALOG, ActionResult, tier_a
 from .monitor import ExecutionMonitor
@@ -210,11 +211,29 @@ def execute(
         store.event(
             "action_denied", {"action_id": request.action_id, "reason_code": decision.reason_code}
         )
+        notify_mod.emit(
+            store,
+            config,
+            "action_denied",
+            "warning",
+            f"Action {request.action_id} denied: {decision.reason_code}",
+            {"action_id": request.action_id, "reason_code": decision.reason_code},
+            now=now,
+        )
         store.db.commit()
         return {"status": "denied", "reason": decision.reason_code}
     store.event(
         "action_authorized",
         {"action_id": request.action_id, "roe_id": roe.id, "targets": list(request.targets)},
+    )
+    notify_mod.emit(
+        store,
+        config,
+        "action_authorized",
+        "info",
+        f"Action {request.action_id} authorized",
+        {"action_id": request.action_id, "roe_id": roe.id},
+        now=now,
     )
     monitor = monitor or ExecutionMonitor(config.monitor, config.agent)
     secrets = {}
@@ -248,6 +267,15 @@ def execute(
         (result.status, now, json.dumps({"detail": result.detail}), action_row),
     )
     store.db.commit()
+    notify_mod.emit(
+        store,
+        config,
+        "action_completed",
+        "info",
+        f"Action {request.action_id} {result.status}",
+        {"action_id": request.action_id, "status": result.status},
+        now=now,
+    )
     return {
         "status": result.status,
         "action_row": action_row,

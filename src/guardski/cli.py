@@ -12,6 +12,7 @@ from pathlib import Path
 from threading import Event
 
 from . import __version__
+from . import backup as backup_mod
 from . import cmdb as cmdb_mod
 from . import compliance as compliance_mod
 from . import credentials as credentials_mod
@@ -61,6 +62,8 @@ def parser() -> argparse.ArgumentParser:
     triage.add_argument("--risk-until", help="ISO 8601 timestamp with timezone")
     export = commands.add_parser("export", help="Export a consistent, checksummed evidence bundle")
     export.add_argument("--output", type=Path, required=True)
+    export.add_argument("--sign", action="store_true")
+    export.add_argument("--key", type=Path)
     verify = commands.add_parser("verify", help="Verify an evidence bundle (no config required)")
     verify.add_argument("bundle", type=Path)
     verify.add_argument("--signature", type=Path)
@@ -68,6 +71,12 @@ def parser() -> argparse.ArgumentParser:
     signbundle = commands.add_parser("sign-bundle", help="Sign an evidence bundle (Ed25519)")
     signbundle.add_argument("bundle", type=Path)
     signbundle.add_argument("--key", required=True, type=Path)
+    backup_cmd = commands.add_parser("backup", help="Back up the state directory")
+    backup_cmd.add_argument("--output", required=True, type=Path)
+    restore_cmd = commands.add_parser("restore", help="Restore a state-directory backup")
+    restore_cmd.add_argument("--input", required=True, type=Path)
+    restore_cmd.add_argument("--state-dir", required=True, type=Path)
+    restore_cmd.add_argument("--force", action="store_true")
     commands.add_parser("verify-audit", help="Verify the local audit hash chain")
     commands.add_parser(
         "gate", help="Fail for coverage gaps, overdue issues, or open HIGH/CRITICAL issues"
@@ -181,6 +190,9 @@ def main(argv: list[str] | None = None) -> int:
                 }
             )
             return 0
+        if args.command == "restore":
+            emit(backup_mod.restore(args.input, args.state_dir, args.force))
+            return 0
         config = load_config(args.config)
         if args.command == "check":
             required = sorted({t.engine for t in config.targets})
@@ -246,8 +258,13 @@ def main(argv: list[str] | None = None) -> int:
                 args.finding_id, args.status, args.actor, args.reason, args.owner, risk_until
             )
             emit({"finding_id": args.finding_id, "status": args.status, "recorded": True})
+        elif args.command == "backup":
+            emit(backup_mod.backup(config, args.output))
         elif args.command == "export":
-            emit(export_bundle(config, store, args.output.resolve()))
+            key = args.key.read_text().strip() if args.sign and args.key else None
+            if args.sign and not key:
+                raise ValueError("export --sign requires --key")
+            emit(export_bundle(config, store, args.output.resolve(), sign_key=key))
         elif args.command == "verify-audit":
             emit({"verified": True, "audit_chain_head": store.verify_events()})
         elif args.command == "gate":

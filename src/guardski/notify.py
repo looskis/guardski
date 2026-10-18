@@ -171,3 +171,18 @@ def notify(store, config, event: NotificationEvent, notifiers=None, roe=None, no
             log.warning("notifier %s failed: %s", handler.name, exc)
     store.db.commit()
     return delivered
+
+
+def emit(store, config, kind, severity, summary, details=None, actor="agent", roe=None, now=None):
+    """Build and deliver a NotificationEvent; a no-op when config is absent."""
+    if config is None:
+        return True
+    event = NotificationEvent(
+        kind=kind,
+        severity=severity,
+        summary=summary,
+        details=details or {},
+        actor=actor,
+        timestamp=time.time() if now is None else now,
+    )
+    return notify(store, config, event, roe=roe, now=now)

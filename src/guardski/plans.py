@@ -4,6 +4,7 @@ import hashlib
 import json
 import time
 
+from . import notify as notify_mod
 from . import rbac
 
 
@@ -42,6 +43,16 @@ def approve(store, plan_id, actor, ttl_hours=24, now=None, config=None, signatur
             {"plan_id": plan_id, "actor": actor, "context_digest": row["context_digest"]},
             actor,
         )
+    notify_mod.emit(
+        store,
+        config,
+        "plan_approved",
+        "info",
+        f"Plan {plan_id} approved",
+        {"plan_id": plan_id},
+        actor,
+        now=now,
+    )
     return {"plan_id": plan_id, "status": "approved", "valid_until": valid_until}
 
 
@@ -59,10 +70,18 @@ def reject(store, plan_id, actor, reason, now=None):
     return {"plan_id": plan_id, "status": "rejected"}
 
 
-def mark_stale(store, plan_id, reason):
+def mark_stale(store, plan_id, reason, config=None):
     with store.db:
         store.db.execute("UPDATE plans SET status='stale' WHERE id=?", (plan_id,))
         store.event("plan_stale", {"plan_id": plan_id, "reason": reason})
+    notify_mod.emit(
+        store,
+        config,
+        "plan_stale",
+        "warning",
+        f"Plan {plan_id} is stale: {reason}",
+        {"plan_id": plan_id, "reason": reason},
+    )
 
 
 def revalidate(store, plan_id, actor, ttl_hours=24, max_auto_extend_hours=72, now=None):

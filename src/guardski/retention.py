@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import time
 
 # Retention never breaks the chain of justification (SPEC §14.2): plans and artifacts
@@ -91,6 +92,28 @@ def purge(store, config, now: float | None = None) -> dict:
         (cutoff,),
     )
     purged["plan_requests"] = cursor.rowcount
+
+    cutoff = _cutoff(now, retention.actions_days)
+    count = 0
+    for row in store.db.execute(
+        "SELECT id, artifact_dir, status FROM actions "
+        "WHERE finished_at IS NOT NULL AND finished_at < ?",
+        (cutoff,),
+    ).fetchall():
+        referenced = store.db.execute(
+            "SELECT 1 FROM findings WHERE proof_action_id=? LIMIT 1", (row["id"],)
+        ).fetchone()
+        if referenced:
+            store.db.execute(
+                "UPDATE actions SET status='retained', result_json=NULL WHERE id=?",
+                (row["id"],),
+            )
+        else:
+            store.db.execute("DELETE FROM actions WHERE id=?", (row["id"],))
+            directory = row["artifact_dir"] or f"artifacts/{row['id']}"
+            shutil.rmtree(config.state_dir / directory, ignore_errors=True)
+        count += 1
+    purged["actions"] = count
 
     for table, value in purged.items():
         _purge_event(store, table, value)

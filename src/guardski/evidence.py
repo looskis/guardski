@@ -17,7 +17,7 @@ def sha256_file(path: Path) -> str:
         return hashlib.file_digest(source, "sha256").hexdigest()
 
 
-def export_bundle(config: Config, store: Store, output: Path) -> dict:
+def export_bundle(config: Config, store: Store, output: Path, sign_key: str | None = None) -> dict:
     if output.exists():
         raise ValueError(f"Evidence output already exists: {output}")
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -88,11 +88,14 @@ def export_bundle(config: Config, store: Store, output: Path) -> dict:
         with output.open("xb") as target, staged.open("rb") as source:
             while chunk := source.read(1024 * 1024):
                 target.write(chunk)
-    return {
+    result = {
         "path": str(output.resolve()),
         "sha256": sha256_file(output),
         "audit_chain_head": chain_head,
     }
+    if sign_key:
+        result.update(sign_bundle(output, sign_key))
+    return result
 
 
 def verify_bundle(path: Path) -> dict:

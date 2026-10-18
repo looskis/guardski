@@ -245,3 +245,39 @@ def test_coverage_ignores_non_scan_config(config, store):
     store.finish("r1", target, config, [], {}, "", None)
     changed = config.__class__(**{**config.__dict__, "sla_days": {**config.sla_days, "HIGH": 999}})
     assert not store.coverage(changed)[0]["needs_attention"]
+
+
+def test_backup_and_restore(config, store, tmp_path):
+    from guardski.backup import backup, restore
+
+    archive = tmp_path / "state.zip"
+    assert backup(config, archive)["sha256"]
+    target = tmp_path / "restored"
+    result = restore(archive, target)
+    assert result["files"] >= 1
+    assert (target / "guardski.sqlite3").is_file()
+
+
+def test_export_sign(config, store, tmp_path):
+    from guardski import signing
+    from guardski.evidence import export_bundle
+
+    private, _public = signing.generate_keypair()
+    bundle = tmp_path / "b.zip"
+    result = export_bundle(config, store, bundle, sign_key=private)
+    assert (tmp_path / "b.zip.sig").is_file()
+    assert result["signature"]
+
+
+def test_retention_purges_actions(config, store):
+    from guardski.retention import purge
+
+    old = NOW - 500 * 86400
+    with store.db:
+        store.db.execute(
+            "INSERT INTO actions (id,action_id,tier,roe_id,targets_json,parameters_json,"
+            "decision,status,finished_at) VALUES ('a1','confirm.reachability','A','r','[]',"
+            "'{}','ALLOW','succeeded',?)",
+            (old,),
+        )
+    assert purge(store, config, now=NOW)["actions"] == 1

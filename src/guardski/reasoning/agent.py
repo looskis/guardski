@@ -4,6 +4,7 @@ import json
 import time
 import uuid
 
+from .. import notify as notify_mod
 from .. import plans as plans_mod
 from ..graph import Scope, build_graph
 from ..providers import GenerationRequest, Message, ModelError, ModelSchemaError
@@ -61,6 +62,15 @@ def generate_plan(
                 "context_digest": bundle.context_digest,
                 "model_id": config.model.model_id,
             },
+        )
+        notify_mod.emit(
+            store,
+            config,
+            "plan_reused",
+            "info",
+            f"Plan {existing['id']} reused",
+            {"plan_id": existing["id"]},
+            now=now,
         )
         return {
             "status": "reused",
@@ -188,6 +198,15 @@ def _persist(store, config, bundle, plan, result, confidence, basis, now):
             "prompt_sha256": result.prompt_sha256,
             "builder_version": context_mod.BUILDER_VERSION,
         },
+    )
+    notify_mod.emit(
+        store,
+        config,
+        "plan_generated",
+        "info",
+        f"Plan {plan_id} generated",
+        {"plan_id": plan_id, "context_digest": bundle.context_digest},
+        now=now,
     )
     for hypothesis in plan.hypotheses:
         statement_hash = hashlib.sha256(hypothesis.statement.encode()).hexdigest()
