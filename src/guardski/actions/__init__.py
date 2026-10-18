@@ -93,6 +93,8 @@ SCHEMAS = {
         "required": ["method"],
         "properties": {
             "asset_id": {"type": "string"},
+            "addr": {"type": "string"},
+            "username": {"type": "string"},
             "method": {"enum": ["ssh", "winrm"]},
             "credential": {"type": "object"},
         },

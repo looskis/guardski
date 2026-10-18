@@ -75,9 +75,14 @@ class Transport:
         except OSError:
             return {"authenticated": False, "role_hint": "", "status": None}
 
-    def package_inventory(self, asset_id: str, method: str, credential: dict) -> dict:
-        # Fixed read-only commands per method; the operator must supply a transport.
-        raise NotImplementedError("package_inventory requires an operator-supplied transport")
+    def package_inventory(self, host: str, method: str, credential: dict) -> dict:
+        if method == "ssh":
+            from .. import inventory
+
+            return inventory.collect_ssh(
+                host, credential.get("value", ""), credential.get("username", "")
+            )
+        raise NotImplementedError("winrm requires an operator-supplied transport")
 
 
 def _epoch(stamp: str | None) -> float | None:
@@ -153,11 +158,14 @@ def run_package_inventory(
     transport: Transport, request: ActionRequest, secrets=None
 ) -> ActionResult:
     asset_id = request.asset_ids[0] if request.asset_ids else ""
+    host = str(
+        request.parameters.get("addr") or (request.targets[0] if request.targets else asset_id)
+    )
     method = str(request.parameters.get("method", "ssh"))
     if method not in ("ssh", "winrm"):
         return ActionResult("failed", "unknown_method")
     credential = _credential(request, secrets)
-    result = transport.package_inventory(asset_id, method, credential)
+    result = transport.package_inventory(host, method, credential)
     facts = ()
     for package in result.get("packages", []):
         facts += (("sbom_component", asset_id, 0, package),)

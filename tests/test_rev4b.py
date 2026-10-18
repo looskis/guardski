@@ -345,3 +345,14 @@ def test_scan_derives_sbom_facts_and_exports(config, store, tmp_path):
     assert store.list_facts(kind="sbom_component")
     result = write(store, tmp_path / "sbom.json")
     assert result["components"] >= 1
+
+
+def test_inventory_parsers():
+    from guardski.inventory import parse_listeners, parse_packages
+
+    packages = parse_packages("openssl\t3.0.2\nbash\t5.1\n")
+    assert packages[0]["purl"] == "pkg:generic/openssl"
+    assert packages[0]["version"] == "3.0.2"
+    listeners = parse_listeners('LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=1,fd=3))')
+    assert listeners[0]["port"] == 22
+    assert listeners[0]["process"] == "sshd"
