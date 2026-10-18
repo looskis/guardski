@@ -127,3 +127,30 @@ Before relying on this agent for production evidence:
    independent security/penetration assessment where required by your program.
 
 This checklist is deployment work; it has not been performed on your infrastructure.
+
+## Capability addendum (revision 4 implementation)
+
+These are implemented and covered by deterministic tests; live validation still requires the
+lab described in `lab/README.md`.
+
+- **Credentialed inventory (Linux/SSH).** `recon.package_inventory` runs fixed read-only
+  commands over SSH (`dpkg-query`/`rpm`, `ss`/`netstat`) and records `sbom_component` and
+  `service_binding` facts. WinRM/Windows inventory is **not** implemented; supply an
+  operator transport if needed.
+- **Host discovery (opt-in).** Network targets can enable a discovery pass so hosts with no
+  open TCP ports still appear as assets (with hostname/OS when Nmap reports them). UDP
+  (`-sU`) and OS detection (`-O`) are opt-in and normally require root.
+- **Topology measurement.** `guardski topology trace` runs `traceroute` and records
+  `network_path` facts; the graph adds `path_via` and observed `same_segment` edges. This is
+  a measurement heuristic, not a firewall/segmentation audit.
+- **SBOM.** `guardski sbom` renders CycloneDX 1.5 from `sbom_component` facts (scanner- and
+  credential-derived). It is an inventory export, not a full dependency-resolution SBOM.
+- **Safe proof actions.** Built-in `prove.ssrf_canary`, `prove.auth_bypass_read`,
+  `prove.marker_write`, and `prove.default_credential` run only under a signed RoE and the
+  Tier-B dry-run gate; SSRF uses a loopback canary, reads store only a hash, and markers are
+  removed and verified.
+- **Agent eval harness.** `guardski eval` runs deterministic scenarios (KEV prioritization,
+  illegal action rejection, coverage-gap honesty, plan dedup) with the stub provider.
+
+Still out of scope or not implemented: authenticated application/business-logic testing,
+live cloud/identity/CMDB connectors, WinRM, a UI, and multi-host fleet aggregation.
