@@ -18,3 +18,8 @@ def test_cli_plan_requires_reasoning(config_file, capsys):
     code = main(["--config", str(config_file), "plan"])
     assert code == 2
     assert "reasoning_enabled" in capsys.readouterr().err
+
+
+def test_cli_metrics(config_file, capsys):
+    assert main(["--config", str(config_file), "metrics"]) == 0
+    assert "plans_generated" in capsys.readouterr().out

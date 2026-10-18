@@ -22,8 +22,13 @@ runner (heartbeat thread, scheduled discovery, plan-request servicing, authorize
 execution, hourly retention purge); recon tasks are authorized by the policy engine and
 executed (scanner-backed via `scan_target`, probe/offline via the executor). `sign-bundle`
 and signed `verify` are wired through the Ed25519 seam. The `cryptography` package is
-required for signatures and is not yet in `pyproject.toml`; the stub provider is the
-default so the suite runs fully offline.
+pinned in the `signing` optional-dependency extra (in `uv.lock`), so the Ed25519 RoE and
+bundle-signing paths are exercised by tests when it is installed and skip cleanly when it
+is not.
+
+_Execution transports: `recon.tls_inspect`, `recon.auth_check`, and `recon.package_inventory`
+are wired through the shared `Transport` (operator-suppliable). `guardski metrics` renders the
+§14.4 efficacy report from the audit chain and the store._
 
 _Revision 2 added the missing half of the agent: a closed discovery loop (§4.10), scoped
 deterministic context (§4.1.1), agent-recorded observations that are not findings
