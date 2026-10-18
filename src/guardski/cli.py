@@ -114,9 +114,9 @@ def parser() -> argparse.ArgumentParser:
     tasks_cmd.add_argument("task_id", nargs="?")
     tasks_cmd.add_argument("--actor")
     tasks_cmd.add_argument("--reason")
-    commands.add_parser("abort", help="Kill switch: abort further actions").add_argument(
-        "--actor", default="operator"
-    )
+    abort_cmd = commands.add_parser("abort", help="Kill switch: abort further actions")
+    abort_cmd.add_argument("--actor", default="operator")
+    abort_cmd.add_argument("--clear", action="store_true")
     validate_cmd = commands.add_parser("validate", help="Run Tier-A validation for a plan")
     validate_cmd.add_argument("--plan", required=True)
     validate_cmd.add_argument("--actor", default="operator")
@@ -466,8 +466,12 @@ def main(argv: list[str] | None = None) -> int:
                     ]
                 )
         elif args.command == "abort":
-            store.request_abort(args.actor)
-            emit({"aborted": True})
+            if args.clear:
+                store.clear_abort()
+                emit({"aborted": False, "cleared": True})
+            else:
+                store.request_abort(args.actor)
+                emit({"aborted": True})
         elif args.command == "validate":
             import time as _time
 

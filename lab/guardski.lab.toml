@@ -1,0 +1,70 @@
+# Guardski lab configuration. Scans this repository by default; uncomment the network
+# block after replacing the CIDR with your isolated lab subnet.
+
+[agent]
+state_dir = "state"
+offline = true
+timeout_seconds = 300
+reasoning_enabled = true
+discovery_enabled = true
+discovery_interval_seconds = 0
+max_tier = "B"
+max_concurrency = 4
+max_actions_per_minute = 30
+
+[schedule]
+interval_seconds = 3600
+
+[engines]
+trivy = "trivy"
+nuclei = "nuclei"
+nmap = "nmap"
+rate_limit = 50
+
+[model]
+provider = "stub"
+model_id = "stub"
+
+[graph]
+max_nodes = 5000
+
+[credentials]
+safeski_command = "safeski"
+allow_env = true
+allow_file = true
+
+[roe]
+path = "roe.lab.toml"
+public_keys = []
+
+[[targets]]
+id = "repo"
+kind = "filesystem"
+value = ".."
+owner = "lab"
+criticality = "medium"
+environment = "test"
+tags = ["lab"]
+
+# --- Isolated network lab (edit before enabling) ---------------------------------
+# [[targets]]
+# id = "lab-net"
+# kind = "network"
+# value = "10.10.10.0/24"
+# owner = "lab"
+# ports = "22,80,443,445,3389,5432,6379"
+# udp = true
+# udp_ports = "53,123,161"
+# os_detection = true
+# discovery = true
+# criticality = "high"
+# environment = "test"
+
+# --- SSH inventory target (host mapping makes Trivy/service joins real) ---------
+# [[targets]]
+# id = "lab-app"
+# kind = "filesystem"
+# value = "/srv/app"
+# host = "10.10.10.20"
+# owner = "lab"
+# criticality = "high"

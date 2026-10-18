@@ -1,0 +1,33 @@
+# Unsigned lab rules of engagement. Do not use outside an isolated lab.
+# Production RoEs must be signed (guardski roe verify + Ed25519 approvals).
+
+[roe]
+id = "lab-roe-1"
+issued_at = 1760000000
+expires_at = 4102444800
+scope_allow = ["10.10.10.0/24"]
+scope_exclude = []
+max_tier = "B"
+max_intensity = 4
+max_actions_per_minute = 30
+max_tasks_per_hour = 60
+discovery = true
+mode = "transparent"
+credentials = ["ssh-lab"]
+allowed_actions = [
+  "recon.nmap_rescan",
+  "recon.nuclei_targeted",
+  "recon.http_fingerprint",
+  "recon.tls_inspect",
+  "recon.sbom_match",
+  "recon.auth_check",
+  "recon.package_inventory",
+  "confirm.reachability",
+  "confirm.banner",
+  "confirm.http_status",
+  "prove.ssrf_canary",
+  "prove.auth_bypass_read",
+  "prove.marker_write",
+  "prove.default_credential",
+]
+denied_actions = []
