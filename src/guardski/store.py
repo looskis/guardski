@@ -190,6 +190,20 @@ SCHEMA_V4 = """
 """
 
 
+SCHEMA_V5 = """
+    CREATE TABLE IF NOT EXISTS identity_meta (
+        id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT, tenant TEXT,
+        attributes_json TEXT NOT NULL DEFAULT '{}',
+        source TEXT, imported_at REAL NOT NULL, imported_by TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS identity_edge (
+        src TEXT NOT NULL, kind TEXT NOT NULL, dst TEXT NOT NULL,
+        source TEXT, imported_at REAL NOT NULL,
+        PRIMARY KEY (src, kind, dst)
+    );
+"""
+
+
 def canonical(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
@@ -203,7 +217,7 @@ class Store:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA foreign_keys=ON")
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1, 2, 3, 4):
+        if version not in (0, 1, 2, 3, 4, 5):
             raise ValueError(f"Unsupported database schema version: {version}")
         self.db.executescript(SCHEMA_V1)
         if version < 2:
@@ -212,6 +226,8 @@ class Store:
             self._migrate_v3(from_version=2 if version >= 1 else 0)
         if version < 4:
             self._migrate_v4(from_version=3 if version >= 1 else 0)
+        if version < 5:
+            self._migrate_v5(from_version=4 if version >= 1 else 0)
 
     def _migrate_v2(self, from_version: int) -> None:
         with self.db:
@@ -234,6 +250,13 @@ class Store:
             self.db.execute("PRAGMA user_version=4")
             if from_version >= 1:
                 self.event("schema_migrated", {"from_version": from_version, "to_version": 4})
+
+    def _migrate_v5(self, from_version: int) -> None:
+        with self.db:
+            self.db.executescript(SCHEMA_V5)
+            self.db.execute("PRAGMA user_version=5")
+            if from_version >= 1:
+                self.event("schema_migrated", {"from_version": from_version, "to_version": 5})
 
     def close(self) -> None:
         self.db.close()

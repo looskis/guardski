@@ -15,6 +15,7 @@ from . import __version__
 from . import cmdb as cmdb_mod
 from . import compliance as compliance_mod
 from . import credentials as credentials_mod
+from . import identity as identity_mod
 from . import ingest as ingest_mod
 from . import intel as intel_mod
 from . import metrics as metrics_mod
@@ -139,6 +140,12 @@ def parser() -> argparse.ArgumentParser:
     assets_cmd.add_argument("action", choices=["import"])
     assets_cmd.add_argument("file")
     assets_cmd.add_argument("--actor", required=True)
+    identity_cmd = commands.add_parser(
+        "identity", help="Import offline identity data (Entra ID/AD)"
+    )
+    identity_cmd.add_argument("action", choices=["import"])
+    identity_cmd.add_argument("file")
+    identity_cmd.add_argument("--actor", required=True)
     return root
 
 
@@ -412,6 +419,8 @@ def main(argv: list[str] | None = None) -> int:
             emit(compliance_mod.write_report(store, config, args.framework, args.output))
         elif args.command == "assets":
             emit(cmdb_mod.import_assets(store, args.file, args.actor))
+        elif args.command == "identity":
+            emit(identity_mod.import_identities(store, args.file, args.actor))
         elif args.command == "metrics":
             emit(metrics_mod.report(store, config, since=args.since))
         return 0

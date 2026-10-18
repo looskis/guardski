@@ -115,3 +115,22 @@ def test_cmdb_import_merges_into_graph(config, store, tmp_path):
     assert node["attributes"]["criticality"] == "critical"
     assert "payment" in node["attributes"]["tags"]
     assert any(e["kind"] == "asset_has_impact" for e in built.edges)
+
+
+def test_identity_import_adds_nodes_and_edges(config, store, tmp_path):
+    from guardski.graph import build_graph
+    from guardski.identity import import_identities
+
+    export = tmp_path / "identities.json"
+    export.write_text(
+        '{"identities": [{"id": "user:alice", "kind": "user"}, '
+        '{"id": "group:payments", "kind": "group"}], '
+        '"edges": [{"src": "user:alice", "kind": "member_of", "dst": "group:payments"}]}'
+    )
+    result = import_identities(store, export, "operator")
+    assert result["identities"] == 2 and result["edges"] == 1
+    built = build_graph(store, config, now=1000.0)
+    ids = {n["id"] for n in built.nodes}
+    assert "user:alice" in ids and "group:payments" in ids
+    assert any(e["kind"] == "member_of" for e in built.edges)
+    assert store.verify_events()

@@ -357,6 +357,20 @@ def build_graph(
                 }
             )
 
+    for row in store.db.execute("SELECT * FROM identity_meta"):
+        add_node(
+            row["id"],
+            "identity",
+            kind=row["kind"],
+            name=row["name"],
+            tenant=row["tenant"],
+            attributes=json.loads(row["attributes_json"]),
+        )
+    for row in store.db.execute("SELECT * FROM identity_edge"):
+        edges.append(
+            {"kind": row["kind"], "src": row["src"], "dst": row["dst"], "attributes": {}}
+        )
+
     graph = Graph(
         scope={"targets": list(scope.target_ids), "allow": list(scope.allow_cidrs)},
         nodes=nodes,

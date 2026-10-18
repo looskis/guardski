@@ -78,7 +78,7 @@ def test_run_records_scan_digest(config, store):
 def test_fresh_database_is_version_two_with_agentic_tables(config):
     store = Store(config.state_dir)
     try:
-        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 5
         names = {
             row[0]
             for row in store.db.execute(
@@ -120,7 +120,7 @@ def test_v1_database_upgrades_additively(config):
         connection.close()
     store = Store(config.state_dir)
     try:
-        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 5
         row = store.db.execute("SELECT scan_digest,status FROM runs WHERE id='old'").fetchone()
         assert row["scan_digest"] is None and row["status"] == "succeeded"
         kinds = [
