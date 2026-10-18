@@ -85,3 +85,40 @@ def execution_gate(store, plan_id, now=None):
         store.event("plan_not_approved", {"plan_id": plan_id, "check": "expired"})
         return False, "expired"
     return True, None
+
+
+def mark_dry_run(store, plan_id, dry_run_digest, now=None):
+    now = time.time() if now is None else now
+    _plan(store, plan_id)
+    with store.db:
+        store.db.execute(
+            "UPDATE plans SET dry_run_at=?, dry_run_digest=? WHERE id=?",
+            (now, dry_run_digest, plan_id),
+        )
+        store.event("plan_dry_run", {"plan_id": plan_id, "dry_run_digest": dry_run_digest})
+    return {"plan_id": plan_id, "dry_run_digest": dry_run_digest}
+
+
+def approve_dry_run(store, plan_id, actor, now=None):
+    now = time.time() if now is None else now
+    row = _plan(store, plan_id)
+    if not row["dry_run_at"]:
+        raise PlanStateError("plan has not been dry-run")
+    with store.db:
+        store.db.execute(
+            "UPDATE plans SET dry_run_approved_by=?, dry_run_approved_at=? WHERE id=?",
+            (actor, now, plan_id),
+        )
+        store.event(
+            "plan_dry_run_approved",
+            {"plan_id": plan_id, "actor": actor, "dry_run_digest": row["dry_run_digest"]},
+            actor,
+        )
+    return {"plan_id": plan_id, "approved_by": actor}
+
+
+def gate_dry_run(store, plan_id, dry_run_digest):
+    row = _plan(store, plan_id)
+    if not row["dry_run_approved_at"] or row["dry_run_digest"] != dry_run_digest:
+        raise PlanStateError("Tier-B execution requires an approved dry run")
+    return True

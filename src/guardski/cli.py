@@ -12,8 +12,12 @@ from pathlib import Path
 from threading import Event
 
 from . import __version__
+from . import compliance as compliance_mod
+from . import credentials as credentials_mod
 from . import ingest as ingest_mod
 from . import intel as intel_mod
+from . import plans as plans_mod
+from . import roe as roe_mod
 from .agent import run
 from .config import load_config
 from .evidence import export_bundle, verify_bundle
@@ -86,6 +90,32 @@ def parser() -> argparse.ArgumentParser:
     ingest.add_argument("--target", required=True)
     ingest.add_argument("--actor", required=True)
     commands.add_parser("model-probe", help="Record model runtime capabilities")
+    approve = commands.add_parser("approve-plan", help="Approve a generated plan")
+    approve.add_argument("plan_id")
+    approve.add_argument("--actor", required=True)
+    approve.add_argument("--valid-for")
+    reject = commands.add_parser("reject-plan", help="Reject a plan with a reason")
+    reject.add_argument("plan_id")
+    reject.add_argument("--actor", required=True)
+    reject.add_argument("--reason", required=True)
+    revalidate = commands.add_parser("revalidate-plan", help="Re-check a plan's cited evidence")
+    revalidate.add_argument("plan_id")
+    revalidate.add_argument("--actor", default="agent")
+    dryrun = commands.add_parser("approve-dry-run", help="Approve a Tier-B dry run")
+    dryrun.add_argument("plan_id")
+    dryrun.add_argument("--actor", required=True)
+    roe = commands.add_parser("roe", help="Rules of engagement")
+    roe.add_argument("action", choices=["verify"])
+    roe.add_argument("file")
+    cred = commands.add_parser("credential", help="Manage credential metadata")
+    cred.add_argument("action", choices=["add", "list", "revoke"])
+    cred.add_argument("credential_id", nargs="?")
+    cred.add_argument("--kind")
+    cred.add_argument("--scope", action="append", default=[])
+    cred.add_argument("--actor")
+    report = commands.add_parser("report", help="Render a compliance report pack")
+    report.add_argument("--framework", choices=["pci", "ctem", "soc2"], required=True)
+    report.add_argument("--output", required=True)
     return root
 
 
@@ -260,6 +290,48 @@ def main(argv: list[str] | None = None) -> int:
                 emit(intel_mod.import_feed(store, config, Path(args.file), args.kind, args.actor))
         elif args.command == "ingest":
             emit(ingest_mod.import_sarif(store, config, Path(args.file), args.target, args.actor))
+        elif args.command == "approve-plan":
+            ttl = int(args.valid_for) if args.valid_for else config.agent.plan_ttl_hours
+            emit(plans_mod.approve(store, args.plan_id, args.actor, ttl_hours=ttl))
+        elif args.command == "reject-plan":
+            emit(plans_mod.reject(store, args.plan_id, args.actor, args.reason))
+        elif args.command == "revalidate-plan":
+            emit(
+                plans_mod.revalidate(
+                    store,
+                    args.plan_id,
+                    args.actor,
+                    ttl_hours=config.agent.plan_ttl_hours,
+                    max_auto_extend_hours=config.agent.max_auto_extend_hours,
+                )
+            )
+        elif args.command == "approve-dry-run":
+            emit(plans_mod.approve_dry_run(store, args.plan_id, args.actor))
+        elif args.command == "roe":
+            parsed = roe_mod.load_roe(Path(args.file))
+            emit(
+                {
+                    "roe_id": parsed.id,
+                    "max_tier": parsed.max_tier,
+                    "discovery": parsed.discovery,
+                    "digest": parsed.digest,
+                }
+            )
+        elif args.command == "credential":
+            if args.action == "list":
+                emit(credentials_mod.list_credentials(store))
+            elif args.action == "add":
+                if not args.kind or not args.scope or not args.actor:
+                    raise ValueError("credential add requires --kind, --scope, and --actor")
+                credentials_mod.add_credential(
+                    store, args.credential_id, args.kind, args.scope, args.actor
+                )
+                emit({"added": args.credential_id})
+            else:
+                credentials_mod.revoke_credential(store, args.credential_id, args.actor)
+                emit({"revoked": args.credential_id})
+        elif args.command == "report":
+            emit(compliance_mod.write_report(store, config, args.framework, args.output))
         return 0
     except Exception as exc:
         print(f"guardski: {exc}", file=sys.stderr)
