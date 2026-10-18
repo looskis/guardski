@@ -128,3 +128,15 @@ def test_subprocess_limits(config, fake_scanner, tmp_path, mode, match):
     config = replace(config, trivy=fake_scanner(mode), timeout_seconds=1, max_output_mb=1)
     with pytest.raises(ScanError, match=match):
         run_scanner(config, config.targets[0], work, Event(), lambda: None)
+
+
+def test_host_inventory_filters_pn_overreport():
+    from guardski.scanners import filter_host_inventory
+
+    hosts = [
+        {"addr": "10.0.0.1", "state": "up"},
+        {"addr": "10.0.0.2", "state": "up"},
+    ]
+    services = [{"addr": "10.0.0.1", "port": 80, "proto": "tcp"}]
+    assert filter_host_inventory(hosts, services, False) == [hosts[0]]
+    assert filter_host_inventory(hosts, services, True) == hosts

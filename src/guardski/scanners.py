@@ -198,6 +198,38 @@ def parse_nmap(text: str) -> tuple[list[Finding], dict]:
     }
 
 
+def filter_host_inventory(hosts, services, discovery):
+    """Without a discovery pass, Nmap -Pn reports every address as up; only keep hosts
+    with an observed service so dead addresses don't become assets."""
+    if discovery:
+        return hosts
+    open_hosts = {service["addr"] for service in services}
+    return [host for host in hosts if host.get("addr") in open_hosts]
+
+
+def _nmap_discovery(binary, target, work, env, config, stop, heartbeat, lease_fd):
+    output = work / "discovery.xml"
+    command = [binary, "-sn", "-R", "-oX", str(output)]
+    if ipaddress.ip_network(target.value).version == 6:
+        command.append("-6")
+    command.append(target.value)
+    execute(
+        command,
+        work,
+        env,
+        min(config.timeout_seconds, 600),
+        config.max_output_mb * 1024 * 1024,
+        stop,
+        heartbeat,
+        lease_fd,
+    )
+    if not output.is_file():
+        raise ScanError("Nmap discovery produced no report")
+    _, metadata = parse_nmap(output.read_text())
+    output.unlink(missing_ok=True)
+    return [host for host in metadata.get("host_inventory", []) if host.get("state") == "up"]
+
+
 def prepare_environment(config: Config) -> dict[str, str]:
     home = config.state_dir / "engine-home"
     home.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -455,6 +487,15 @@ def run_scanner(
             p: hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in config.templates
         }
     (work / "engine.json").write_text(json.dumps(metadata, indent=2))
+    discovered = []
+    if target.engine == "nmap" and target.discovery:
+        discovered = _nmap_discovery(binary, target, work, env, config, stop, heartbeat, lease_fd)
+        if not discovered:
+            metadata["host_inventory"] = []
+            metadata["services"] = []
+            (work / "report.json").write_text(json.dumps({"inventory": [], "hosts": {}}, indent=2))
+            (work / "stdout.log").unlink(missing_ok=True)
+            return [], metadata
     execute(
         cmd,
         work,
@@ -491,7 +532,17 @@ def run_scanner(
     else:
         findings, inventory = parse_nmap(raw)
         metadata.update(inventory)
+        metadata["host_inventory"] = filter_host_inventory(
+            metadata.get("host_inventory", []), metadata.get("services", []), target.discovery
+        )
+        if discovered:
+            known = {host["addr"] for host in discovered}
+            for host in metadata["host_inventory"]:
+                if host["addr"] not in known:
+                    discovered.append(host)
+            metadata["host_inventory"] = discovered
         report = {"inventory": [asdict(f) for f in findings], **inventory}
+        report["host_inventory"] = metadata["host_inventory"]
     (work / "report.json").write_text(json.dumps(report, indent=2))
     # stdout can duplicate findings, including secrets. Keep only the sanitized report.
     output.unlink()
