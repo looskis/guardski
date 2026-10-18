@@ -53,7 +53,7 @@ jobs:
           sed -i \
             -e "s|/releases/download/v[0-9.]*/guardski-[0-9.]*\.tar\.gz|/releases/download/$TAG/guardski-$VERSION.tar.gz|" \
             -e "s|^  sha256 \".*\"|  sha256 \"$sha\"|" Formula/guardski.rb
-          brew style Formula/guardski.rb
+          ruby -c Formula/guardski.rb
           cp Formula/guardski.rb dist/guardski.rb
           {
             echo "## Homebrew formula"
