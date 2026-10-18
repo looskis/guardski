@@ -11,7 +11,6 @@ KINDS = ("user", "group", "role", "app", "policy")
 EDGE_KINDS = ("member_of", "can_access", "trusts")
 
 
-
 def import_identities(store, path, actor, now=None):
     now = time.time() if now is None else now
     source = Path(path)
@@ -31,8 +30,16 @@ def import_identities(store, path, actor, now=None):
                 "INSERT OR REPLACE INTO identity_meta "
                 "(id,kind,name,tenant,attributes_json,source,imported_at,imported_by) "
                 "VALUES (?,?,?,?,?,?,?,?)",
-                (identity_id, kind, item.get("name"), item.get("tenant"),
-                 json.dumps(item.get("attributes", {})), str(source), now, actor),
+                (
+                    identity_id,
+                    kind,
+                    item.get("name"),
+                    item.get("tenant"),
+                    json.dumps(item.get("attributes", {})),
+                    str(source),
+                    now,
+                    actor,
+                ),
             )
             count += 1
         for edge in edges:

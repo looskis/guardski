@@ -167,3 +167,81 @@ def test_import_dependabot(config, store, tmp_path):
     assert result["imported"] == 1
     row = store.db.execute("SELECT provenance_json FROM findings").fetchone()
     assert json.loads(row["provenance_json"])[0]["source"] == "dependabot"
+
+
+def test_revalidation_marks_stale_when_cited_finding_changes(config, store):
+    import json
+
+    from guardski.actions import ActionRequest  # noqa: F401
+    from guardski.plans import approve, revalidate
+    from guardski.scanners import Finding
+
+    target = config.targets[0]
+    store.start("r1", target, config)
+    store.finish(
+        "r1", target, config, [Finding("CVE-X", "vulnerability", "HIGH", "t", "loc")], {}, "", None
+    )
+    fid = store.list_findings()[0]["id"]
+    payload = {
+        "narrative": "Cited.",
+        "citations": [{"text_span": "Cited.", "finding_ids": [fid]}],
+        "steps": [],
+        "hypotheses": [],
+    }
+    provider = ResilientProvider(
+        StubProvider(payload=payload), config.model, store=store, sleep=lambda _: None
+    )
+    plan_id = generate_plan(store, config, provider, now=NOW)["plan_id"]
+    approve(store, plan_id, "alice", now=NOW)
+    assert revalidate(store, plan_id, "agent", now=NOW)["status"] == "approved"
+    with store.db:
+        store.db.execute("UPDATE findings SET status='resolved' WHERE id=?", (fid,))
+    assert revalidate(store, plan_id, "agent", now=NOW)["status"] == "stale"
+    assert json.loads(store.db.execute("SELECT data_json FROM plans").fetchone()[0])["narrative"]
+
+
+def test_tier_b_gate_requires_dry_run(config, store):
+    import json
+
+    from guardski.plans import execution_gate
+
+    data = {
+        "narrative": "x",
+        "steps": [{"proposed_tier": "B"}],
+        "citations": [],
+        "hypotheses": [],
+    }
+    with store.db:
+        store.db.execute(
+            "INSERT INTO plans (id,created_at,scope,graph_digest,context_digest,config_digest,"
+            "scan_digests_json,model_id,prompt_sha256,prompt_version,builder_version,bundle_json,"
+            "prompt_json,data_json,raw_sha256,status,valid_until,approved_at) VALUES "
+            "('p1',0,'s','g','c','d','[]','m','p','1','1','{}','{}',?,'x','approved',9999999999,0)",
+            (json.dumps(data),),
+        )
+    assert execution_gate(store, "p1", now=1) == (False, "dry_run")
+
+
+def test_policy_respects_agent_max_tier():
+    from guardski.actions import ActionRequest
+    from guardski.policy import authorize
+    from guardski.roe import RoE
+
+    policy_roe = RoE(
+        id="r",
+        issued_at=0,
+        expires_at=10000,
+        scope_allow=("10.0.0.0/24",),
+        max_tier="B",
+        allowed_actions=("prove.marker_write",),
+    )
+    request = ActionRequest(action_id="prove.marker_write", tier="B", targets=("10.0.0.5",))
+    assert authorize(request, policy_roe, 5, max_tier="A").reason_code == "tier_too_high"
+
+
+def test_coverage_ignores_non_scan_config(config, store):
+    target = config.targets[0]
+    store.start("r1", target, config)
+    store.finish("r1", target, config, [], {}, "", None)
+    changed = config.__class__(**{**config.__dict__, "sla_days": {**config.sla_days, "HIGH": 999}})
+    assert not store.coverage(changed)[0]["needs_attention"]

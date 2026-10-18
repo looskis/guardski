@@ -58,6 +58,8 @@ def authorize(
     catalog: dict | None = None,
     credentials: dict | None = None,
     signature_ok: bool = True,
+    max_tier: str | None = None,
+    per_asset_cap: int | None = None,
 ) -> Decision:
     catalog = CATALOG if catalog is None else catalog
     credentials = credentials or {}
@@ -77,7 +79,10 @@ def authorize(
     if action.tier != spec.get("tier"):
         return Decision(False, "tier_mismatch", f"{action.tier} != {spec.get('tier')}")
     tier = spec.get("tier", "C")
-    if tier > roe.max_tier:
+    ceiling = roe.max_tier
+    if max_tier and max_tier < ceiling:
+        ceiling = max_tier
+    if tier > ceiling:
         return Decision(False, "tier_too_high", tier)
     expanded = expand_targets(action.targets, roe.scope_allow)
     for address in expanded:
@@ -112,6 +117,10 @@ def authorize(
     if budget is not None:
         if budget.tasks_this_hour >= roe.max_tasks_per_hour:
             return Decision(False, "budget_exhausted", "hourly")
+        if per_asset_cap:
+            for asset in action.asset_ids:
+                if budget.per_asset.get(asset, 0) >= per_asset_cap:
+                    return Decision(False, "budget_exhausted", f"asset:{asset}")
     return Decision(True, "ok", "")
 
 

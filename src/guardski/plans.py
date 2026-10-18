@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import time
 
 from . import rbac
@@ -66,18 +68,26 @@ def mark_stale(store, plan_id, reason):
 def revalidate(store, plan_id, actor, ttl_hours=24, max_auto_extend_hours=72, now=None):
     now = time.time() if now is None else now
     row = _plan(store, plan_id)
+    data = json.loads(row["data_json"])
+    payload, digest = evidence(store, data, now)
+    previous = row["evidence_digest"]
+    if previous and digest != previous:
+        mark_stale(store, plan_id, "cited_evidence_changed")
+        return {"plan_id": plan_id, "status": "stale", "reason": "cited_evidence_changed"}
     approved_at = row["approved_at"] or now
     ceiling = approved_at + max_auto_extend_hours * 3600
     valid_until = min(now + ttl_hours * 3600, ceiling)
     auto = actor == "agent"
     with store.db:
         store.db.execute(
-            "UPDATE plans SET valid_until=?, last_revalidated_at=?, revalidated_by=? WHERE id=?",
-            (valid_until, now, actor, plan_id),
+            "UPDATE plans SET valid_until=?, last_revalidated_at=?, revalidated_by=?, "
+            "evidence_json=?, evidence_digest=? WHERE id=?",
+            (valid_until, now, actor, json.dumps(payload, sort_keys=True), digest, plan_id),
         )
         store.event("plan_revalidated", {"plan_id": plan_id, "actor": actor}, actor)
     return {
         "plan_id": plan_id,
+        "status": "approved",
         "valid_until": valid_until,
         "auto": auto,
         "capped": valid_until >= ceiling,
@@ -93,6 +103,11 @@ def execution_gate(store, plan_id, now=None):
     if row["valid_until"] is None or now > row["valid_until"]:
         store.event("plan_not_approved", {"plan_id": plan_id, "check": "expired"})
         return False, "expired"
+    data = json.loads(row["data_json"])
+    if any(step.get("proposed_tier") == "B" for step in data.get("steps", [])):
+        if not row["dry_run_approved_at"] or not row["dry_run_digest"]:
+            store.event("plan_not_approved", {"plan_id": plan_id, "check": "dry_run"})
+            return False, "dry_run"
     return True, None
 
 
@@ -138,3 +153,45 @@ def gate_dry_run(store, plan_id, dry_run_digest):
     if not row["dry_run_approved_at"] or row["dry_run_digest"] != dry_run_digest:
         raise PlanStateError("Tier-B execution requires an approved dry run")
     return True
+
+
+def _cited_ids(data):
+    findings, assets, facts = set(), set(), set()
+    for citation in data.get("citations", []):
+        findings.update(citation.get("finding_ids", []))
+        assets.update(citation.get("asset_ids", []))
+        facts.update(citation.get("fact_ids", []))
+    for step in data.get("steps", []):
+        findings.update(step.get("finding_ids", []))
+        assets.update(step.get("asset_ids", []))
+        facts.update(step.get("fact_ids", []))
+    for hypothesis in data.get("hypotheses", []):
+        findings.update(hypothesis.get("finding_ids", []))
+        assets.update(hypothesis.get("asset_ids", []))
+    return sorted(findings), sorted(assets), sorted(facts)
+
+
+def evidence(store, data, now=None):
+    now = time.time() if now is None else now
+    finding_ids, asset_ids, fact_ids = _cited_ids(data)
+    findings = []
+    for fid in finding_ids:
+        row = store.db.execute(
+            "SELECT status,severity,in_kev,epss,false_positive_count,coverage_verified,"
+            "exploited_confirmed_at FROM findings WHERE id=?",
+            (fid,),
+        ).fetchone()
+        findings.append([fid, list(row) if row else None])
+    facts = []
+    for xid in fact_ids:
+        row = store.db.execute(
+            "SELECT last_seen,expires_at FROM asset_facts WHERE id=?", (xid,)
+        ).fetchone()
+        if row is None:
+            facts.append([xid, None])
+        else:
+            expired = row["expires_at"] is not None and row["expires_at"] <= now
+            facts.append([xid, row["last_seen"], expired])
+    payload = {"findings": findings, "assets": asset_ids, "facts": facts}
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return payload, hashlib.sha256(canonical.encode()).hexdigest()

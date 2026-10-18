@@ -4,6 +4,7 @@ import json
 import time
 import uuid
 
+from .. import plans as plans_mod
 from ..graph import Scope, build_graph
 from ..providers import GenerationRequest, Message, ModelError, ModelSchemaError
 from . import context as context_mod
@@ -143,6 +144,7 @@ def _persist(store, config, bundle, plan, result, confidence, basis, now):
     data = schema.to_dict(plan)
     data["confidence"] = confidence
     data["confidence_basis"] = basis
+    evidence_payload, evidence_digest = plans_mod.evidence(store, data, now)
     bundle_json = json.dumps(bundle.canonical(), sort_keys=True)
     prompt_json = prompt_mod.render(bundle)[1]
     scan_digests = [config.scan_digest(t) for t in config.targets]
@@ -150,8 +152,9 @@ def _persist(store, config, bundle, plan, result, confidence, basis, now):
         """INSERT INTO plans
         (id, created_at, scope, graph_digest, context_digest, config_digest,
          scan_digests_json, model_id, prompt_sha256, prompt_version, builder_version,
-         bundle_json, prompt_json, data_json, raw_sha256, model_confidence, status)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+         bundle_json, prompt_json, data_json, raw_sha256, model_confidence, status,
+         evidence_json, evidence_digest)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             plan_id,
             now,
@@ -170,6 +173,8 @@ def _persist(store, config, bundle, plan, result, confidence, basis, now):
             result.raw_sha256,
             plan.model_confidence,
             "generated",
+            json.dumps(evidence_payload, sort_keys=True),
+            evidence_digest,
         ),
     )
     store.event(

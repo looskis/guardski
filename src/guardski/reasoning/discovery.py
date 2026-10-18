@@ -4,6 +4,7 @@ import json
 import time
 import uuid
 
+from .. import ids
 from ..graph import Scope, build_graph
 from ..providers import GenerationRequest, Message, ModelError
 from . import agent as agent_mod
@@ -21,6 +22,16 @@ def propose_tasks(store, config, plan_id, plan, now):
         if not step.proposed_action.startswith("recon."):
             continue
         params_json = json.dumps(step.parameters, sort_keys=True)
+        target_id = config.targets[0].id
+        for candidate in config.targets:
+            if (
+                candidate.value in step.targets
+                or candidate.host in step.targets
+                or ids.target_asset_id(candidate.id) in step.asset_ids
+                or (candidate.host and ids.asset_id(candidate.host) in step.asset_ids)
+            ):
+                target_id = candidate.id
+                break
         duplicate = store.db.execute(
             """SELECT id FROM scan_tasks WHERE action_id=? AND parameters_json=?
             AND state NOT IN (?,?,?) LIMIT 1""",
@@ -41,7 +52,7 @@ def propose_tasks(store, config, plan_id, plan, now):
                 now,
                 plan_id,
                 step.ordinal,
-                config.targets[0].id,
+                target_id,
                 step.proposed_action,
                 params_json,
                 0,
@@ -53,7 +64,7 @@ def propose_tasks(store, config, plan_id, plan, now):
             {
                 "task_id": task_id,
                 "action_id": step.proposed_action,
-                "target_id": config.targets[0].id,
+                "target_id": target_id,
             },
         )
         proposed.append(task_id)

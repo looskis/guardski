@@ -354,9 +354,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
             else:
                 emit(
-                    ingest_mod.import_sarif(
-                        store, config, Path(args.file), args.target, args.actor
-                    )
+                    ingest_mod.import_sarif(store, config, Path(args.file), args.target, args.actor)
                 )
         elif args.command == "approve-plan":
             ttl = int(args.valid_for) if args.valid_for else config.agent.plan_ttl_hours

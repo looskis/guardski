@@ -367,9 +367,7 @@ def build_graph(
             attributes=json.loads(row["attributes_json"]),
         )
     for row in store.db.execute("SELECT * FROM identity_edge"):
-        edges.append(
-            {"kind": row["kind"], "src": row["src"], "dst": row["dst"], "attributes": {}}
-        )
+        edges.append({"kind": row["kind"], "src": row["src"], "dst": row["dst"], "attributes": {}})
 
     graph = Graph(
         scope={"targets": list(scope.target_ids), "allow": list(scope.allow_cidrs)},

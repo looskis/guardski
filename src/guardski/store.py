@@ -204,6 +204,12 @@ SCHEMA_V5 = """
 """
 
 
+SCHEMA_V6 = """
+    ALTER TABLE plans ADD COLUMN evidence_json TEXT;
+    ALTER TABLE plans ADD COLUMN evidence_digest TEXT;
+"""
+
+
 def canonical(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
@@ -217,7 +223,7 @@ class Store:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA foreign_keys=ON")
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1, 2, 3, 4, 5):
+        if version not in (0, 1, 2, 3, 4, 5, 6):
             raise ValueError(f"Unsupported database schema version: {version}")
         self.db.executescript(SCHEMA_V1)
         if version < 2:
@@ -228,6 +234,8 @@ class Store:
             self._migrate_v4(from_version=3 if version >= 1 else 0)
         if version < 5:
             self._migrate_v5(from_version=4 if version >= 1 else 0)
+        if version < 6:
+            self._migrate_v6(from_version=5 if version >= 1 else 0)
 
     def _migrate_v2(self, from_version: int) -> None:
         with self.db:
@@ -257,6 +265,13 @@ class Store:
             self.db.execute("PRAGMA user_version=5")
             if from_version >= 1:
                 self.event("schema_migrated", {"from_version": from_version, "to_version": 5})
+
+    def _migrate_v6(self, from_version: int) -> None:
+        with self.db:
+            self.db.executescript(SCHEMA_V6)
+            self.db.execute("PRAGMA user_version=6")
+            if from_version >= 1:
+                self.event("schema_migrated", {"from_version": from_version, "to_version": 6})
 
     def close(self) -> None:
         self.db.close()
@@ -664,16 +679,8 @@ class Store:
             job = self.db.execute(
                 "SELECT next_run,digest FROM jobs WHERE target_id=?", (target.id,)
             ).fetchone()
-            # Compare the complete target configuration to avoid showing old assets as covered.
-            matching = False
-            if run:
-                old = json.loads(run["config_json"])
-                old_targets = {t["id"]: t for t in old["targets"]}
-                matching = canonical(old_targets.get(target.id)) == canonical(asdict(target))
-                old["targets"] = [old_targets.get(target.id)]
-                matching = matching and hashlib.sha256(
-                    json.dumps(old, sort_keys=True).encode()
-                ).hexdigest() == config.job_digest(target)
+            # Coverage follows the scan-scoped digest, not unrelated config changes (SPEC §4.1).
+            matching = bool(run and run["scan_digest"] == config.scan_digest(target))
             next_due = (
                 job["next_run"] if job and job["digest"] == config.job_digest(target) else None
             )

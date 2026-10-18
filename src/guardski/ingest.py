@@ -112,9 +112,9 @@ def import_dependabot(store, config, path, target_id, actor, now=None):
             advisory = alert.get("security_advisory", {})
             vuln = alert.get("security_vulnerability", {})
             dependency = alert.get("dependency", {})
-            package = vuln.get("package", {}).get("name") or dependency.get(
-                "package", {}
-            ).get("name", "")
+            package = vuln.get("package", {}).get("name") or dependency.get("package", {}).get(
+                "name", ""
+            )
             fixed = (vuln.get("first_patched_version") or {}).get("identifier", "")
             rule = advisory.get("cve_id") or advisory.get("ghsa_id") or "dependabot"
             references = advisory.get("references") or []
@@ -130,8 +130,12 @@ def import_dependabot(store, config, path, target_id, actor, now=None):
             )
             fid = finding.fingerprint(target)
             provenance = {
-                "origin": "import", "source": "dependabot", "tool": "dependabot",
-                "rule": rule, "imported_at": now, "artifact_sha256": digest,
+                "origin": "import",
+                "source": "dependabot",
+                "tool": "dependabot",
+                "rule": rule,
+                "imported_at": now,
+                "artifact_sha256": digest,
             }
             existing = store.db.execute(
                 "SELECT provenance_json FROM findings WHERE id=?", (fid,)
@@ -149,9 +153,19 @@ def import_dependabot(store, config, path, target_id, actor, now=None):
                     "(id,target_id,data_json,severity,category,first_seen,last_seen,"
                     "last_run,status,owner,provenance_json,coverage_verified) "
                     "VALUES (?,?,?,?,?,?,?,?,?,?,?,0)",
-                    (fid, target.id, json.dumps(finding.__dict__), finding.severity,
-                     finding.category, now, now, "import", "open", target.owner,
-                     json.dumps([provenance])),
+                    (
+                        fid,
+                        target.id,
+                        json.dumps(finding.__dict__),
+                        finding.severity,
+                        finding.category,
+                        now,
+                        now,
+                        "import",
+                        "open",
+                        target.owner,
+                        json.dumps([provenance]),
+                    ),
                 )
             imported += 1
         store.event(

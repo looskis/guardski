@@ -22,6 +22,18 @@ def _sbom_match(transport, request, secrets=None):
     return ActionResult("succeeded", "sbom_match", facts=(("sbom_component", asset_id, 0, value),))
 
 
+def _prove(transport, request, secrets=None):
+    prover = getattr(transport, "prove", None)
+    if prover is None:
+        return ActionResult("failed", "proof_transport_required")
+    result = prover(request.action_id, request)
+    return ActionResult(
+        result.get("status", "succeeded"),
+        result.get("detail", "proof"),
+        facts=tuple(result.get("facts", ())),
+    )
+
+
 HANDLERS = {
     "confirm.reachability": tier_a.run_reachability,
     "confirm.banner": tier_a.run_banner,
@@ -31,6 +43,10 @@ HANDLERS = {
     "recon.tls_inspect": tier_a.run_tls_inspect,
     "recon.auth_check": tier_a.run_auth_check,
     "recon.package_inventory": tier_a.run_package_inventory,
+    "prove.ssrf_canary": _prove,
+    "prove.auth_bypass_read": _prove,
+    "prove.marker_write": _prove,
+    "prove.default_credential": _prove,
 }
 
 
@@ -150,7 +166,21 @@ def execute(
         catalog=catalog,
         credentials=credentials,
         signature_ok=signature_ok,
+        max_tier=config.agent.max_tier,
+        per_asset_cap=config.agent.max_tasks_per_asset_per_hour,
     )
+    if decision.allowed and request.plan_id:
+        from ..plans import execution_gate
+
+        plan_ok, plan_check = execution_gate(store, request.plan_id, now)
+        if not plan_ok:
+            decision = type(decision)(False, "plan_not_approved", plan_check)
+    if (
+        decision.allowed
+        and catalog.get(request.action_id, {}).get("tier") == "B"
+        and not request.plan_id
+    ):
+        decision = type(decision)(False, "dry_run", "plan_required")
     action_row = str(uuid.uuid4())
     store.db.execute(
         """INSERT INTO actions

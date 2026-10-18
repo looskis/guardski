@@ -76,14 +76,22 @@ def build_context(
     facts = store.list_facts(now=now)
 
     open_investigations = [
-        dict(row)
+        {
+            "id": row["id"],
+            "scope": row["scope"],
+            "statement": row["statement"],
+            "disproof": row["disproof_json"],
+            "finding_ids": row["finding_ids_json"],
+            "asset_ids": row["asset_ids_json"],
+            "status": row["status"],
+        }
         for row in store.db.execute(
             "SELECT * FROM investigations WHERE status='open' ORDER BY created_at"
         )
     ]
     investigation_findings = set()
     for investigation in open_investigations:
-        investigation_findings.update(json.loads(investigation["finding_ids_json"]))
+        investigation_findings.update(json.loads(investigation["finding_ids"]))
 
     backend = {row["id"]: row for row in store.db.execute("SELECT * FROM findings").fetchall()}
     candidates = []
@@ -98,6 +106,10 @@ def build_context(
         item["exploit_public"] = bool(row["exploit_public"])
         item["validation_count"] = row["validation_count"] or 0
         item["false_positive_count"] = row["false_positive_count"] or 0
+        item["epss_decile"] = min(9, int(float(row["epss"] or 0) * 10))
+        target = next((t for t in config.targets if t.id == row["target_id"]), None)
+        criticality = target.criticality if target else None
+        item["asset_impact"] = 2 if criticality == "critical" else 1 if criticality == "high" else 0
         if item.get("effective_status") not in ("open", "in_progress"):
             dropped["resolved"] += 1
             continue

@@ -54,6 +54,16 @@ RECON_SPECS = (
 for _action in RECON_SPECS:
     _register(_action)
 
+PROVE_SPECS = (
+    _spec("prove.ssrf_canary", "B", OBJECT, True, True),
+    _spec("prove.auth_bypass_read", "B", OBJECT, True, True),
+    _spec("prove.marker_write", "B", OBJECT, True, True),
+    _spec("prove.default_credential", "B", OBJECT, True, True),
+)
+
+for _action in PROVE_SPECS:
+    _register(_action)
+
 
 @dataclass(frozen=True)
 class ActionRequest:
