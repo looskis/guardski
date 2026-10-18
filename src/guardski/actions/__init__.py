@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 HARD_STOP_CLASSES = (
     "destructive",
@@ -53,3 +53,24 @@ RECON_SPECS = (
 
 for _action in RECON_SPECS:
     _register(_action)
+
+
+@dataclass(frozen=True)
+class ActionRequest:
+    action_id: str
+    tier: str
+    targets: tuple[str, ...] = ()
+    asset_ids: tuple[str, ...] = ()
+    parameters: dict = field(default_factory=dict)
+    intensity: int = 1
+    credential_ids: tuple[str, ...] = ()
+    plan_id: str | None = None
+    step_ordinal: int | None = None
+    task_id: str | None = None
+
+
+@dataclass(frozen=True)
+class ActionResult:
+    status: str
+    detail: str = ""
+    facts: tuple = ()
