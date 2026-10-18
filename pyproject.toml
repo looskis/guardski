@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "guardski"
+version = "0.1.0"
+description = "On-premises scheduled security scanning and audit evidence"
+requires-python = ">=3.12"
+dependencies = ["croniter==6.2.4", "defusedxml==0.7.1"]
+
+[project.scripts]
+guardski = "guardski.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "ruff>=0.14,<1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

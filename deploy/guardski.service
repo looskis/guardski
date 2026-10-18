@@ -1,0 +1,33 @@
+[Unit]
+Description=Guardski on-premises security scanner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=guardski
+Group=guardski
+ExecStart=/opt/guardski/.venv/bin/guardski --config /etc/guardski/guardski.toml run
+WorkingDirectory=/var/lib/guardski
+StateDirectory=guardski
+StateDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+KillMode=control-group
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/guardski
+
+[Install]
+WantedBy=multi-user.target

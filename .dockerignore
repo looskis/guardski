@@ -1,0 +1,10 @@
+.git
+.venv
+.tools
+.guardski
+__pycache__
+.pytest_cache
+.ruff_cache
+guardski.toml
+evidence-*.zip
+tests

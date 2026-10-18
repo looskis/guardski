@@ -1,0 +1,76 @@
+# All cron schedules use UTC. Paths are relative to this configuration file.
+[agent]
+state_dir = "../.guardski"
+offline = false
+timeout_seconds = 1800
+max_output_mb = 64
+max_db_age_hours = 168
+
+[schedule]
+cron = "0 2 * * *"
+# Immediate first run; restarts preserve the saved next-run time.
+run_on_start = true
+
+[engines]
+trivy = "trivy"
+nuclei = "nuclei"
+nmap = "nmap"
+rate_limit = 5
+# Add specific, reviewed, signed local templates before enabling web targets.
+nuclei_templates = []
+
+# These are example organizational SLAs, NOT deadlines prescribed by SOC 2.
+[policy]
+critical_days = 7
+high_days = 30
+medium_days = 90
+low_days = 180
+
+[[targets]]
+id = "application"
+kind = "filesystem"
+value = ".."
+owner = "engineering"
+scanners = ["vuln", "misconfig", "secret"]
+
+# Optional targets: replace values with your approved asset inventory.
+# [[targets]]
+# id = "linux-host"
+# kind = "rootfs"
+# value = "/mnt/host"
+# owner = "infrastructure"
+# scanners = ["vuln"]
+
+# [[targets]]
+# id = "service-image"
+# kind = "image"
+# value = "registry.internal.example/service:approved-version"
+# owner = "engineering"
+
+# [[targets]]
+# id = "exported-image"
+# kind = "archive"
+# value = "/srv/images/service.tar"
+# owner = "engineering"
+
+# [[targets]]
+# id = "application-sbom"
+# kind = "sbom"
+# value = "/srv/sboms/service.cdx.json"
+# owner = "engineering"
+
+# [[targets]]
+# id = "internal-api"
+# kind = "web"
+# value = "https://api.internal.example"
+# owner = "engineering"
+
+# [[targets]]
+# id = "server-subnet"
+# kind = "network"
+# value = "10.10.20.0/24"
+# ports = "22,80,443,3389,5432,8080"
+# owner = "infrastructure"
+# [targets.schedule]
+# cron = "0 3 * * 0"
+# run_on_start = false

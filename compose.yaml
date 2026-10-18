@@ -1,0 +1,27 @@
+services:
+  guardski:
+    build: .
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 2
+    stop_grace_period: 30s
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    volumes:
+      - ./deploy/guardski.container.toml:/etc/guardski/guardski.toml:ro
+      - ${GUARDSKI_SCAN_PATH:-.}:/targets/application:ro
+      - guardski-state:/var/lib/guardski
+    healthcheck:
+      test: [CMD, guardski, --config, /etc/guardski/guardski.toml, health]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+
+volumes:
+  guardski-state:
