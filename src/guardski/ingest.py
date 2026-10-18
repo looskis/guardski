@@ -94,3 +94,67 @@ def import_sarif(
             "findings_imported", {"target_id": target.id, "tool": "sarif", "count": imported}
         )
     return {"target_id": target.id, "imported": imported, "artifact_sha256": digest}
+
+
+def import_dependabot(store, config, path, target_id, actor, now=None):
+    now = time.time() if now is None else now
+    source = Path(path)
+    if not source.is_file():
+        raise ValueError(f"Dependabot file does not exist: {source}")
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    alerts = json.loads(source.read_text())
+    target = next((t for t in config.targets if t.id == target_id), None)
+    if target is None:
+        raise ValueError(f"Unknown target: {target_id}")
+    imported = 0
+    with store.db:
+        for alert in alerts:
+            advisory = alert.get("security_advisory", {})
+            vuln = alert.get("security_vulnerability", {})
+            dependency = alert.get("dependency", {})
+            package = vuln.get("package", {}).get("name") or dependency.get(
+                "package", {}
+            ).get("name", "")
+            fixed = (vuln.get("first_patched_version") or {}).get("identifier", "")
+            rule = advisory.get("cve_id") or advisory.get("ghsa_id") or "dependabot"
+            references = advisory.get("references") or []
+            finding = Finding(
+                rule=rule,
+                category="vulnerability",
+                severity=_severity(advisory.get("severity", "warning")),
+                title=advisory.get("summary", rule),
+                location=dependency.get("manifest_path", package),
+                package=package,
+                fixed_version=fixed,
+                reference=references[0] if references else "",
+            )
+            fid = finding.fingerprint(target)
+            provenance = {
+                "origin": "import", "source": "dependabot", "tool": "dependabot",
+                "rule": rule, "imported_at": now, "artifact_sha256": digest,
+            }
+            existing = store.db.execute(
+                "SELECT provenance_json FROM findings WHERE id=?", (fid,)
+            ).fetchone()
+            if existing:
+                records = json.loads(existing["provenance_json"] or "[]")
+                records.append(provenance)
+                store.db.execute(
+                    "UPDATE findings SET provenance_json=? WHERE id=?",
+                    (json.dumps(records), fid),
+                )
+            else:
+                store.db.execute(
+                    "INSERT INTO findings "
+                    "(id,target_id,data_json,severity,category,first_seen,last_seen,"
+                    "last_run,status,owner,provenance_json,coverage_verified) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,0)",
+                    (fid, target.id, json.dumps(finding.__dict__), finding.severity,
+                     finding.category, now, now, "import", "open", target.owner,
+                     json.dumps([provenance])),
+                )
+            imported += 1
+        store.event(
+            "findings_imported", {"target_id": target.id, "tool": "dependabot", "count": imported}
+        )
+    return {"target_id": target.id, "imported": imported, "artifact_sha256": digest}

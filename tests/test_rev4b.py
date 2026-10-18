@@ -134,3 +134,36 @@ def test_identity_import_adds_nodes_and_edges(config, store, tmp_path):
     assert "user:alice" in ids and "group:payments" in ids
     assert any(e["kind"] == "member_of" for e in built.edges)
     assert store.verify_events()
+
+
+def test_import_dependabot(config, store, tmp_path):
+    import json
+
+    from guardski.ingest import import_dependabot
+
+    alerts = tmp_path / "dependabot.json"
+    alerts.write_text(
+        json.dumps(
+            [
+                {
+                    "dependency": {
+                        "package": {"name": "lodash"},
+                        "manifest_path": "package-lock.json",
+                    },
+                    "security_advisory": {
+                        "cve_id": "CVE-2021-9999",
+                        "summary": "proto pollution",
+                        "severity": "high",
+                    },
+                    "security_vulnerability": {
+                        "package": {"name": "lodash"},
+                        "first_patched_version": {"identifier": "4.17.21"},
+                    },
+                }
+            ]
+        )
+    )
+    result = import_dependabot(store, config, alerts, config.targets[0].id, "operator")
+    assert result["imported"] == 1
+    row = store.db.execute("SELECT provenance_json FROM findings").fetchone()
+    assert json.loads(row["provenance_json"])[0]["source"] == "dependabot"

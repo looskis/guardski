@@ -96,7 +96,7 @@ def parser() -> argparse.ArgumentParser:
     intel.add_argument("--output")
     intel.add_argument("--sha256")
     ingest = commands.add_parser("ingest", help="Import external findings")
-    ingest.add_argument("format", choices=["sarif"])
+    ingest.add_argument("format", choices=["sarif", "code-scanning", "dependabot"])
     ingest.add_argument("file")
     ingest.add_argument("--target", required=True)
     ingest.add_argument("--actor", required=True)
@@ -346,7 +346,18 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError("intel import requires a file, --kind, and --actor")
                 emit(intel_mod.import_feed(store, config, Path(args.file), args.kind, args.actor))
         elif args.command == "ingest":
-            emit(ingest_mod.import_sarif(store, config, Path(args.file), args.target, args.actor))
+            if args.format == "dependabot":
+                emit(
+                    ingest_mod.import_dependabot(
+                        store, config, Path(args.file), args.target, args.actor
+                    )
+                )
+            else:
+                emit(
+                    ingest_mod.import_sarif(
+                        store, config, Path(args.file), args.target, args.actor
+                    )
+                )
         elif args.command == "approve-plan":
             ttl = int(args.valid_for) if args.valid_for else config.agent.plan_ttl_hours
             signature = args.signature.read_text().strip() if args.signature else None
