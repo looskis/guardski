@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import time
 from dataclasses import dataclass, field
@@ -185,7 +186,14 @@ def build_graph(
         node_ids.add(node_id)
         nodes.append({"id": node_id, "type": node_type, "attributes": attributes})
 
-    def add_asset(asset_id: str, coverage: dict, target: Target) -> None:
+    def add_asset(
+        asset_id: str,
+        coverage: dict,
+        target: Target,
+        addr_override: str | None = None,
+        hostname: str = "",
+        os_name: str = "",
+    ) -> None:
         if asset_id in assets:
             return
         assets.add(asset_id)
@@ -199,8 +207,11 @@ def build_graph(
         add_node(
             asset_id,
             "asset",
-            addr=(target.host or target.value if target.kind != "network" else None),
+            addr=addr_override
+            or (target.host or target.value if target.kind != "network" else None),
             target_id=target.id,
+            hostname=hostname,
+            os=os_name,
             owner=owner,
             kind=target.kind,
             criticality=criticality,
@@ -246,6 +257,42 @@ def build_graph(
                     "src": ids.target_asset_id(target.id),
                     "dst": ids.target_asset_id(trusted),
                     "attributes": {"declared": True},
+                }
+            )
+
+    for fact in fact_rows:
+        if fact["kind"] != "host_observation":
+            continue
+        addr = fact["subject"].replace("asset:", "")
+        target = None
+        for candidate in config.targets:
+            if candidate.kind != "network":
+                continue
+            try:
+                if ipaddress.ip_address(addr) in ipaddress.ip_network(candidate.value):
+                    target = candidate
+                    break
+            except ValueError:
+                continue
+        if target is None:
+            continue
+        add_asset(
+            fact["asset_id"],
+            coverage_for(store, config, target, now),
+            target,
+            addr_override=addr,
+            hostname=fact["value"].get("hostname", ""),
+            os_name=fact["value"].get("os", ""),
+        )
+        network = ids.network_id(target.value)
+        if (fact["asset_id"], network) not in seen_network_edges:
+            seen_network_edges.add((fact["asset_id"], network))
+            edges.append(
+                {
+                    "kind": "asset_in_network",
+                    "src": fact["asset_id"],
+                    "dst": network,
+                    "attributes": {},
                 }
             )
 

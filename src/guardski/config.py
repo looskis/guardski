@@ -473,6 +473,10 @@ class Target:
     tags: tuple[str, ...] = ()
     data_classification: str | None = None
     trusts: tuple[str, ...] = ()
+    udp: bool = False
+    udp_ports: str = "53,123,161,500"
+    os_detection: bool = False
+    discovery: bool = False
 
     @property
     def engine(self) -> str:
@@ -734,6 +738,10 @@ def load_config(path: Path) -> Config:
                 "tags",
                 "data_classification",
                 "trusts",
+                "udp",
+                "udp_ports",
+                "os_detection",
+                "discovery",
             },
             "target",
         )
@@ -825,6 +833,16 @@ def load_config(path: Path) -> Config:
         data_classification = _enum(item, "data_classification", "target", DATA_CLASSIFICATIONS)
         tags = _tags(item.get("tags", []))
         trusts = _trusts(item.get("trusts", []))
+        udp = boolean(item.get("udp", False), "target.udp")
+        os_detection = boolean(item.get("os_detection", False), "target.os_detection")
+        discovery = boolean(item.get("discovery", False), "target.discovery")
+        udp_ports = item.get("udp_ports", Target.__dataclass_fields__["udp_ports"].default)
+        if not isinstance(udp_ports, str) or not re.fullmatch(
+            r"\d+(-\d+)?(,\d+(-\d+)?)*", udp_ports
+        ):
+            raise ConfigError("udp_ports must contain port numbers or ranges")
+        if (udp or os_detection or discovery or "udp_ports" in item) and kind != "network":
+            raise ConfigError("udp/os_detection/discovery apply only to network targets")
         targets.append(
             Target(
                 tid,
@@ -840,6 +858,10 @@ def load_config(path: Path) -> Config:
                 tags,
                 data_classification,
                 trusts,
+                udp,
+                udp_ports,
+                os_detection,
+                discovery,
             )
         )
     known = {target.id for target in targets}

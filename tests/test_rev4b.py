@@ -325,3 +325,23 @@ def test_invalid_parameters_are_rejected(config, store):
     result = execute(store, config, policy_roe, request, now=NOW)
     assert result["status"] == "failed"
     assert "invalid_parameters" in result["detail"]
+
+
+def test_scan_derives_sbom_facts_and_exports(config, store, tmp_path):
+    from guardski.sbom import write
+    from guardski.scanners import Finding
+
+    target = config.targets[0]
+    store.start("r1", target, config)
+    store.finish(
+        "r1",
+        target,
+        config,
+        [Finding("CVE-1", "vulnerability", "HIGH", "t", "loc", "openssl", "3.0")],
+        {"artifact_hashes": {"report.json": "abc"}},
+        "",
+        None,
+    )
+    assert store.list_facts(kind="sbom_component")
+    result = write(store, tmp_path / "sbom.json")
+    assert result["components"] >= 1

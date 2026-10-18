@@ -22,6 +22,7 @@ TTL_SECONDS: dict[str, int] = {
     "reachability": 3600,
     "service_binding": 30 * DAYS,
     "sbom_component": 30 * DAYS,
+    "host_observation": 1 * DAYS,
 }
 
 KNOWN_KINDS = tuple(TTL_SECONDS)
@@ -276,3 +277,79 @@ def record_sbom_component(
         source_run_id=source_run_id,
         source_action_id=source_action_id,
     )
+
+
+def record_host(
+    asset_id,
+    *,
+    source_run_id,
+    artifact_hash,
+    observed_at,
+    state="up",
+    hostname="",
+    os="",
+):
+    return _make(
+        "host_observation",
+        asset_id,
+        asset_id,
+        {"state": state, "hostname": hostname, "os": os},
+        provenance={"origin": "scanner", "run_id": source_run_id},
+        artifact_hash=artifact_hash,
+        observed_at=observed_at,
+        source_run_id=source_run_id,
+    )
+
+
+def derive_from_scan(target, findings, metadata, run_id, artifact_hash, now):
+    from . import ids
+
+    derived = []
+    for host in metadata.get("host_inventory", []):
+        asset = ids.asset_id(host["addr"])
+        derived.append(
+            record_host(
+                asset,
+                source_run_id=run_id,
+                artifact_hash=artifact_hash,
+                observed_at=now,
+                state=host.get("state", "up"),
+                hostname=host.get("hostname", ""),
+                os=host.get("os", ""),
+            )
+        )
+    for service in metadata.get("services", []):
+        asset = ids.asset_id(service["addr"])
+        subject = f"{service['addr']}:{service['port']}/{service['proto']}"
+        derived.append(
+            record_banner(
+                asset,
+                subject,
+                source_run_id=run_id,
+                artifact_hash=artifact_hash,
+                observed_at=now,
+                product=service.get("product", ""),
+                version=service.get("version", ""),
+                extra={"name": service.get("name", "")},
+            )
+        )
+    asset = ids.asset_id(target.host) if target.host else ids.target_asset_id(target.id)
+    seen = set()
+    for finding in findings:
+        package = getattr(finding, "package", "")
+        version = getattr(finding, "installed_version", "")
+        if not package or (package, version) in seen:
+            continue
+        seen.add((package, version))
+        derived.append(
+            record_sbom_component(
+                asset,
+                purl=f"pkg:generic/{package}",
+                version=version,
+                source=target.engine,
+                artifact_hash=artifact_hash,
+                observed_at=now,
+                source_run_id=run_id,
+            )
+        )
+    return derived

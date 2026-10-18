@@ -22,6 +22,7 @@ from . import intel as intel_mod
 from . import metrics as metrics_mod
 from . import plans as plans_mod
 from . import roe as roe_mod
+from . import sbom as sbom_mod
 from .config import load_config
 from .evidence import export_bundle, sign_bundle, verify_bundle, verify_bundle_signature
 from .providers import build_provider
@@ -118,6 +119,9 @@ def parser() -> argparse.ArgumentParser:
     validate_cmd.add_argument("--plan", required=True)
     validate_cmd.add_argument("--actor", default="operator")
     validate_cmd.add_argument("--dry-run", action="store_true")
+    sbom_cmd = commands.add_parser("sbom", help="Generate a CycloneDX SBOM from facts")
+    sbom_cmd.add_argument("--output", required=True, type=Path)
+    sbom_cmd.add_argument("--asset")
     intel = commands.add_parser("intel", help="Offline vulnerability intelligence")
     intel.add_argument("action", choices=["import", "status", "fetch"])
     intel.add_argument("file", nargs="?")
@@ -660,6 +664,8 @@ def main(argv: list[str] | None = None) -> int:
                 emit({"revoked": args.credential_id})
         elif args.command == "report":
             emit(compliance_mod.write_report(store, config, args.framework, args.output))
+        elif args.command == "sbom":
+            emit(sbom_mod.write(store, args.output, args.asset))
         elif args.command == "assets":
             emit(cmdb_mod.import_assets(store, args.file, args.actor))
         elif args.command == "identity":

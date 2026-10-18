@@ -219,6 +219,11 @@ def canonical(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
+def _artifact_digest(metadata: dict) -> str:
+    hashes = metadata.get("artifact_hashes", {})
+    return hashes.get("report.json") or hashlib.sha256(canonical(hashes).encode()).hexdigest()
+
+
 class Store:
     def __init__(self, state_dir: Path):
         state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -498,6 +503,12 @@ class Store:
                             ),
                         )
                     self.db.execute("INSERT INTO observations VALUES (?,?,?)", (run_id, fid, data))
+            if not error:
+                artifact_hash = _artifact_digest(metadata)
+                for fact in facts.derive_from_scan(
+                    target, findings, metadata, run_id, artifact_hash, now
+                ):
+                    self._insert_fact(fact)
             # Missing findings are never automatically resolved: scope/coverage can change.
             self.event(
                 "scan_finished",
@@ -527,7 +538,7 @@ class Store:
             results.append(item)
         return results
 
-    def record_fact(self, fact: facts.Fact) -> str:
+    def _insert_fact(self, fact: facts.Fact) -> str:
         """Persist a deterministic observation. Re-observing a value refreshes last_seen."""
         fid = fact.id
         with self.db:
@@ -573,6 +584,9 @@ class Store:
                 },
             )
         return fid
+
+    def record_fact(self, fact: facts.Fact) -> str:
+        return self._insert_fact(fact)
 
     def list_facts(
         self,

@@ -137,19 +137,48 @@ def parse_nmap(text: str) -> tuple[list[Finding], dict]:
     if root.tag != "nmaprun" or finished is None or finished.get("exit") != "success":
         raise ScanError("Nmap did not report successful completion")
     findings = []
+    host_inventory = []
+    services = []
     for host in root.findall("host"):
         if host.get("timedout") == "true":
             raise ScanError("Nmap timed out on a host; coverage is incomplete")
         address = host.find("address")
         if address is None:
             continue
+        addr = address.get("addr")
+        status = host.find("status")
+        hostname = ""
+        for name in host.findall("hostnames/hostname"):
+            if name.get("name"):
+                hostname = name.get("name")
+                break
+        os_match = host.find("os/osmatch")
+        os_name = os_match.get("name", "") if os_match is not None else ""
+        host_inventory.append(
+            {
+                "addr": addr,
+                "hostname": hostname,
+                "os": os_name,
+                "state": status.get("state", "up") if status is not None else "up",
+            }
+        )
         for port in host.findall("ports/port"):
             state = port.find("state")
             if state is None or state.get("state") != "open":
                 continue
             service = port.find("service")
             details = dict(service.attrib) if service is not None else {}
-            endpoint = f"{address.get('addr')}:{port.get('portid')}/{port.get('protocol')}"
+            endpoint = f"{addr}:{port.get('portid')}/{port.get('protocol')}"
+            services.append(
+                {
+                    "addr": addr,
+                    "port": int(port.get("portid")),
+                    "proto": port.get("protocol"),
+                    "name": details.get("name", ""),
+                    "product": details.get("product", ""),
+                    "version": details.get("version", ""),
+                }
+            )
             findings.append(
                 Finding(
                     f"open-{port.get('protocol')}-{port.get('portid')}",
@@ -162,7 +191,11 @@ def parse_nmap(text: str) -> tuple[list[Finding], dict]:
                 )
             )
     hosts = root.find("runstats/hosts")
-    return findings, {"hosts": dict(hosts.attrib) if hosts is not None else {}}
+    return findings, {
+        "hosts": dict(hosts.attrib) if hosts is not None else {},
+        "host_inventory": host_inventory,
+        "services": services,
+    }
 
 
 def prepare_environment(config: Config) -> dict[str, str]:
@@ -304,7 +337,7 @@ def command(config: Config, target: Target, work: Path) -> tuple[list[str], Path
             "-sV",
             "--version-light",
             "-Pn",
-            "-n",
+            "-R",
             "-T3",
             "--max-rate",
             str(config.rate_limit),
@@ -313,11 +346,14 @@ def command(config: Config, target: Target, work: Path) -> tuple[list[str], Path
             "--host-timeout",
             "120s",
             "--open",
-            "-p",
-            target.ports,
-            "-oX",
-            str(output),
         ]
+        if target.os_detection:
+            cmd += ["-O", "--osscan-limit"]
+        if target.udp:
+            cmd += ["-sU", "-p", f"T:{target.ports},U:{target.udp_ports}"]
+        else:
+            cmd += ["-p", target.ports]
+        cmd += ["-oX", str(output)]
         if ipaddress.ip_network(target.value).version == 6:
             cmd += ["-6"]
         cmd += [target.value]
