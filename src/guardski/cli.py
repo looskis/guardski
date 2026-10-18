@@ -53,6 +53,7 @@ def parser() -> argparse.ArgumentParser:
     findings = commands.add_parser("findings", help="Show findings with ownership and SLA status")
     findings.add_argument("--overdue", action="store_true")
     findings.add_argument("--status", choices=STATUSES)
+    findings.add_argument("--format", choices=["json", "sarif", "csv"], default="json")
     triage = commands.add_parser("triage", help="Record a remediation decision and audit event")
     triage.add_argument("finding_id")
     triage.add_argument("--status", choices=STATUSES, required=True)
@@ -94,6 +95,12 @@ def parser() -> argparse.ArgumentParser:
     discover.add_argument("--dry-run", action="store_true")
     inv = commands.add_parser("investigations", help="List long-lived hypotheses")
     inv.add_argument("--status", default="open")
+    abandon = commands.add_parser("abandon-investigation", help="Abandon a hypothesis")
+    abandon.add_argument("investigation_id")
+    abandon.add_argument("--actor", required=True)
+    abandon.add_argument("--reason", required=True)
+    changes = commands.add_parser("changes", help="Findings added or resolved since a time")
+    changes.add_argument("--since", type=float, required=True)
     facts_cmd = commands.add_parser("facts", help="List or import recorded asset facts")
     facts_cmd.add_argument("action", nargs="?", choices=["import"])
     facts_cmd.add_argument("file", nargs="?")
@@ -253,14 +260,74 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("--limit must be between 1 and 10000")
             emit(store.history(args.limit))
         elif args.command == "findings":
-            findings = store.list_findings()
+            findings = [
+                f
+                for f in store.list_findings()
+                if (not args.overdue or f["overdue"])
+                and (not args.status or f["effective_status"] == args.status)
+            ]
+            if args.format == "sarif":
+                emit(
+                    {
+                        "version": "2.1.0",
+                        "runs": [
+                            {
+                                "tool": {"driver": {"name": "guardski"}},
+                                "results": [
+                                    {
+                                        "ruleId": f["finding"].get("rule") or f["id"],
+                                        "level": f["severity"].lower(),
+                                        "message": {"text": f["finding"].get("title", "")},
+                                        "locations": [
+                                            {
+                                                "physicalLocation": {
+                                                    "artifactLocation": {
+                                                        "uri": f["finding"].get("location", "")
+                                                    }
+                                                }
+                                            }
+                                        ],
+                                    }
+                                    for f in findings
+                                ],
+                            }
+                        ],
+                    }
+                )
+            elif args.format == "csv":
+                import csv
+
+                writer = csv.writer(sys.stdout)
+                writer.writerow(["id", "severity", "category", "status", "title", "location"])
+                for f in findings:
+                    writer.writerow(
+                        [
+                            f["id"],
+                            f["severity"],
+                            f["category"],
+                            f["effective_status"],
+                            f["finding"].get("title", ""),
+                            f["finding"].get("location", ""),
+                        ]
+                    )
+            else:
+                emit(findings)
+        elif args.command == "changes":
+            rows = store.list_findings()
+            new = [f for f in rows if f["first_seen"] >= args.since]
+            resolved = [
+                f
+                for f in rows
+                if f["effective_status"] == "resolved" and f["last_seen"] >= args.since
+            ]
             emit(
-                [
-                    f
-                    for f in findings
-                    if (not args.overdue or f["overdue"])
-                    and (not args.status or f["effective_status"] == args.status)
-                ]
+                {
+                    "since": args.since,
+                    "new": len(new),
+                    "resolved": len(resolved),
+                    "new_findings": [f["id"] for f in new],
+                    "resolved_findings": [f["id"] for f in resolved],
+                }
             )
         elif args.command == "triage":
             risk_until = None
@@ -440,6 +507,27 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 ]
             )
+        elif args.command == "abandon-investigation":
+            import time as _time
+
+            with store.db:
+                result = store.db.execute(
+                    "UPDATE investigations SET status='abandoned', resolution=?, "
+                    "resolved_at=?, resolved_by=? WHERE id=?",
+                    (args.reason, _time.time(), args.actor, args.investigation_id),
+                )
+                if result.rowcount != 1:
+                    raise ValueError("Unknown investigation")
+                store.event(
+                    "hypothesis_abandoned",
+                    {
+                        "investigation_id": args.investigation_id,
+                        "actor": args.actor,
+                        "reason": args.reason,
+                    },
+                    args.actor,
+                )
+            emit({"investigation_id": args.investigation_id, "status": "abandoned"})
         elif args.command == "plans":
             emit(
                 [
