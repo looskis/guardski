@@ -354,7 +354,5 @@ def build_graph(
         edges=edges,
     )
     if len(graph.nodes) > config.graph.max_nodes:
-        raise GraphTooLarge(
-            f"graph has {len(graph.nodes)} nodes; pass a narrower --scope"
-        )
+        raise GraphTooLarge(f"graph has {len(graph.nodes)} nodes; pass a narrower --scope")
     return graph
