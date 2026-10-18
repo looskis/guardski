@@ -236,6 +236,28 @@ class Store:
         row = self.db.execute("SELECT * FROM runtime WHERE id=1").fetchone()
         return bool(row and row["running"] and 0 <= time.time() - row["heartbeat"] < 60)
 
+    def circuit_state(self) -> dict:
+        row = self.db.execute("SELECT * FROM runtime WHERE id=1").fetchone()
+        if row is None:
+            return {"state": "closed", "failures": 0, "opened_at": None}
+        return {
+            "state": row["circuit_state"] or "closed",
+            "failures": row["circuit_failures"] or 0,
+            "opened_at": row["circuit_opened_at"],
+        }
+
+    def set_circuit(self, state: str, failures: int, opened_at: float | None) -> None:
+        with self.db:
+            self.db.execute(
+                """INSERT INTO runtime(id, heartbeat, running, circuit_state,
+                circuit_failures, circuit_opened_at) VALUES (1, ?, 1, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                circuit_state=excluded.circuit_state,
+                circuit_failures=excluded.circuit_failures,
+                circuit_opened_at=excluded.circuit_opened_at""",
+                (time.time(), state, failures, opened_at),
+            )
+
     def sync_jobs(self, config: Config, now: float) -> None:
         with self.db:
             for target in config.targets:

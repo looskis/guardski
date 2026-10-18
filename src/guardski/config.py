@@ -81,6 +81,306 @@ def _trusts(value: object) -> tuple[str, ...]:
     return tuple(string(item, "target.trusts") for item in value)
 
 
+def number(value: object, name: str, low: float, high: float) -> float:
+    if type(value) not in (int, float) or isinstance(value, bool) or not low <= value <= high:
+        raise ConfigError(f"{name} must be a number between {low} and {high}")
+    return float(value)
+
+
+def _str_list(value: object, name: str) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        raise ConfigError(f"{name} must be a list")
+    return tuple(string(item, name) for item in value)
+
+
+def _choice(value: object, name: str, allowed: tuple[str, ...]) -> str:
+    text = string(value, name)
+    if text not in allowed:
+        raise ConfigError(f"{name} must be one of: {', '.join(allowed)}")
+    return text
+
+
+def _endpoint_host(endpoint: str) -> str:
+    host = urlsplit(endpoint).hostname
+    if not host:
+        raise ConfigError("endpoint must be an absolute URL")
+    return host
+
+
+def _is_loopback_or_private(host: str) -> bool:
+    if host in {"localhost"}:
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return address.is_loopback or address.is_private
+
+
+def read_model(data: dict) -> ModelConfig:
+    keys(
+        data,
+        {
+            "provider",
+            "endpoint",
+            "model_id",
+            "temperature",
+            "max_tokens",
+            "input_token_budget",
+            "structured_output",
+            "grammar_path",
+            "repair_turns",
+            "timeout_seconds",
+            "max_retries",
+            "circuit_breaker_threshold",
+            "circuit_breaker_cooldown_seconds",
+        },
+        "model",
+    )
+    return ModelConfig(
+        provider=_choice(data.get("provider", "stub"), "model.provider", ("openai", "stub")),
+        endpoint=string(data.get("endpoint", "http://127.0.0.1:11434/v1"), "model.endpoint"),
+        model_id=string(data.get("model_id", "stub"), "model.model_id"),
+        temperature=number(data.get("temperature", 0), "model.temperature", 0, 2),
+        max_tokens=integer(data.get("max_tokens", 4096), "model.max_tokens", 1, 1024000),
+        input_token_budget=integer(
+            data.get("input_token_budget", 24000), "model.input_token_budget", 1, 10000000
+        ),
+        structured_output=_choice(
+            data.get("structured_output", "json_schema"),
+            "model.structured_output",
+            ("json_schema", "grammar", "prompt_only"),
+        ),
+        grammar_path=str(data.get("grammar_path", "")),
+        repair_turns=integer(data.get("repair_turns", 1), "model.repair_turns", 0, 5),
+        timeout_seconds=integer(data.get("timeout_seconds", 120), "model.timeout_seconds", 1, 3600),
+        max_retries=integer(data.get("max_retries", 2), "model.max_retries", 0, 10),
+        circuit_breaker_threshold=integer(
+            data.get("circuit_breaker_threshold", 5),
+            "model.circuit_breaker_threshold",
+            1,
+            1000,
+        ),
+        circuit_breaker_cooldown_seconds=integer(
+            data.get("circuit_breaker_cooldown_seconds", 300),
+            "model.circuit_breaker_cooldown_seconds",
+            1,
+            86400,
+        ),
+    )
+
+
+def read_agent(data: dict) -> AgentConfig:
+    keys(
+        data,
+        {
+            "state_dir",
+            "offline",
+            "timeout_seconds",
+            "max_output_mb",
+            "max_db_age_hours",
+            "reasoning_enabled",
+            "discovery_enabled",
+            "discovery_interval_seconds",
+            "debounce_seconds",
+            "max_tier",
+            "mode",
+            "max_memory_mb",
+            "max_cpu_percent",
+            "plan_ttl_hours",
+            "max_auto_extend_hours",
+            "max_hypotheses_open",
+            "investigation_ttl_days",
+            "max_tasks_per_cycle",
+            "max_tasks_per_hour",
+            "max_tasks_per_asset_per_hour",
+            "task_ttl_minutes",
+            "max_context_findings",
+            "context_token_budget",
+            "monitor_cooldown_seconds",
+            "max_concurrency",
+            "max_actions_per_minute",
+        },
+        "agent",
+    )
+    return AgentConfig(
+        reasoning_enabled=boolean(data.get("reasoning_enabled", False), "reasoning_enabled"),
+        discovery_enabled=boolean(data.get("discovery_enabled", False), "discovery_enabled"),
+        discovery_interval_seconds=integer(
+            data.get("discovery_interval_seconds", 3600),
+            "discovery_interval_seconds",
+            0,
+            31536000,
+        ),
+        debounce_seconds=integer(data.get("debounce_seconds", 60), "debounce_seconds", 1, 86400),
+        max_tier=_choice(data.get("max_tier", "A"), "agent.max_tier", ("A", "B", "C")),
+        mode=_choice(data.get("mode", "transparent"), "agent.mode", ("transparent", "covert")),
+        max_memory_mb=integer(data.get("max_memory_mb", 2048), "max_memory_mb", 1, 1048576),
+        max_cpu_percent=integer(data.get("max_cpu_percent", 80), "max_cpu_percent", 1, 100),
+        plan_ttl_hours=integer(data.get("plan_ttl_hours", 24), "plan_ttl_hours", 1, 8760),
+        max_auto_extend_hours=integer(
+            data.get("max_auto_extend_hours", 72), "max_auto_extend_hours", 1, 8760
+        ),
+        max_hypotheses_open=integer(
+            data.get("max_hypotheses_open", 20), "max_hypotheses_open", 1, 100000
+        ),
+        investigation_ttl_days=integer(
+            data.get("investigation_ttl_days", 90), "investigation_ttl_days", 1, 3650
+        ),
+        max_tasks_per_cycle=integer(
+            data.get("max_tasks_per_cycle", 25), "max_tasks_per_cycle", 1, 100000
+        ),
+        max_tasks_per_hour=integer(
+            data.get("max_tasks_per_hour", 100), "max_tasks_per_hour", 1, 1000000
+        ),
+        max_tasks_per_asset_per_hour=integer(
+            data.get("max_tasks_per_asset_per_hour", 10),
+            "max_tasks_per_asset_per_hour",
+            1,
+            100000,
+        ),
+        task_ttl_minutes=integer(data.get("task_ttl_minutes", 60), "task_ttl_minutes", 1, 10080),
+        max_context_findings=integer(
+            data.get("max_context_findings", 400), "max_context_findings", 1, 100000
+        ),
+        context_token_budget=integer(
+            data.get("context_token_budget", 24000), "context_token_budget", 1, 10000000
+        ),
+        monitor_cooldown_seconds=integer(
+            data.get("monitor_cooldown_seconds", 1800), "monitor_cooldown_seconds", 1, 86400
+        ),
+        max_concurrency=integer(data.get("max_concurrency", 5), "max_concurrency", 1, 1000),
+        max_actions_per_minute=integer(
+            data.get("max_actions_per_minute", 60), "max_actions_per_minute", 1, 100000
+        ),
+    )
+
+
+def read_graph(data: dict) -> GraphConfig:
+    keys(data, {"include_out_of_scope", "max_nodes"}, "graph")
+    return GraphConfig(
+        include_out_of_scope=boolean(
+            data.get("include_out_of_scope", False), "include_out_of_scope"
+        ),
+        max_nodes=integer(data.get("max_nodes", 5000), "graph.max_nodes", 1, 10000000),
+    )
+
+
+def read_intel(data: dict, base: Path) -> IntelConfig:
+    keys(data, {"max_age_hours", "kev_path", "epss_path", "nvd_path", "osv_path"}, "intel")
+
+    def feed(key: str) -> str:
+        raw = data.get(key, "")
+        if not raw:
+            return ""
+        if "://" in raw:
+            raise ConfigError(f"intel.{key} must be a local path; a URL is not allowed")
+        path = local_path(raw, base, f"intel.{key}")
+        if not path.is_file():
+            raise ConfigError(f"intel.{key} does not exist: {path}")
+        return str(path)
+
+    return IntelConfig(
+        max_age_hours=integer(data.get("max_age_hours", 168), "intel.max_age_hours", 1, 87600),
+        kev_path=feed("kev_path"),
+        epss_path=feed("epss_path"),
+        nvd_path=feed("nvd_path"),
+        osv_path=feed("osv_path"),
+    )
+
+
+def read_monitor(data: dict) -> MonitorConfig:
+    keys(
+        data,
+        {
+            "anomaly_latency_multiplier",
+            "anomaly_error_rate",
+            "anomaly_max_response_bytes",
+            "baseline_probes",
+        },
+        "monitor",
+    )
+    return MonitorConfig(
+        anomaly_latency_multiplier=number(
+            data.get("anomaly_latency_multiplier", 10), "anomaly_latency_multiplier", 1, 1000
+        ),
+        anomaly_error_rate=number(data.get("anomaly_error_rate", 0.5), "anomaly_error_rate", 0, 1),
+        anomaly_max_response_bytes=integer(
+            data.get("anomaly_max_response_bytes", 10485760),
+            "anomaly_max_response_bytes",
+            1,
+            1073741824,
+        ),
+        baseline_probes=integer(data.get("baseline_probes", 5), "baseline_probes", 1, 1000),
+    )
+
+
+def read_notify(data: dict) -> NotifyConfig:
+    keys(data, {"notifiers", "webhook_url", "webhook_timeout_seconds"}, "notify")
+    notifiers = _str_list(data.get("notifiers", ["log"]), "notify.notifiers")
+    for name in notifiers:
+        if name not in ("log", "webhook", "syslog"):
+            raise ConfigError(f"notify.notifiers must be a subset of log, webhook, syslog: {name}")
+    return NotifyConfig(
+        notifiers=notifiers,
+        webhook_url=str(data.get("webhook_url", "")),
+        webhook_timeout_seconds=integer(
+            data.get("webhook_timeout_seconds", 10), "webhook_timeout_seconds", 1, 300
+        ),
+    )
+
+
+def read_credentials(data: dict) -> CredentialsConfig:
+    keys(data, {"path"}, "credentials")
+    return CredentialsConfig(path=string(data.get("path", "credentials.age"), "credentials.path"))
+
+
+def read_roe(data: dict) -> RoeConfig:
+    keys(data, {"path", "public_keys"}, "roe")
+    return RoeConfig(
+        path=string(data.get("path", "roe.signed.toml"), "roe.path"),
+        public_keys=_str_list(data.get("public_keys", []), "roe.public_keys"),
+    )
+
+
+def read_retention(data: dict) -> RetentionConfig:
+    keys(
+        data,
+        {
+            "plans_days",
+            "investigations_days",
+            "actions_days",
+            "artifacts_days",
+            "facts_days",
+            "tasks_days",
+            "notifications_days",
+            "intel_days",
+        },
+        "retention",
+    )
+    config = RetentionConfig(
+        plans_days=integer(data.get("plans_days", 400), "plans_days", 1, 36500),
+        investigations_days=integer(
+            data.get("investigations_days", 400), "investigations_days", 1, 36500
+        ),
+        actions_days=integer(data.get("actions_days", 365), "actions_days", 1, 36500),
+        artifacts_days=integer(data.get("artifacts_days", 400), "artifacts_days", 1, 36500),
+        facts_days=integer(data.get("facts_days", 400), "facts_days", 1, 36500),
+        tasks_days=integer(data.get("tasks_days", 90), "tasks_days", 1, 36500),
+        notifications_days=integer(
+            data.get("notifications_days", 30), "notifications_days", 1, 36500
+        ),
+        intel_days=integer(data.get("intel_days", 30), "intel_days", 1, 36500),
+    )
+    if config.plans_days < config.actions_days + 30:
+        raise ConfigError("plans_days must be >= actions_days + 30")
+    if config.artifacts_days < config.actions_days:
+        raise ConfigError("artifacts_days must be >= actions_days")
+    if config.investigations_days < config.plans_days:
+        raise ConfigError("investigations_days must be >= plans_days")
+    return config
+
+
 @dataclass(frozen=True)
 class Schedule:
     cron: str | None = "0 2 * * *"
@@ -135,6 +435,101 @@ class Target:
 
 
 @dataclass(frozen=True)
+class ModelConfig:
+    provider: str = "stub"
+    endpoint: str = "http://127.0.0.1:11434/v1"
+    model_id: str = "stub"
+    temperature: float = 0.0
+    max_tokens: int = 4096
+    input_token_budget: int = 24000
+    structured_output: str = "json_schema"
+    grammar_path: str = ""
+    repair_turns: int = 1
+    timeout_seconds: int = 120
+    max_retries: int = 2
+    circuit_breaker_threshold: int = 5
+    circuit_breaker_cooldown_seconds: int = 300
+
+
+@dataclass(frozen=True)
+class AgentConfig:
+    reasoning_enabled: bool = False
+    discovery_enabled: bool = False
+    discovery_interval_seconds: int = 3600
+    debounce_seconds: int = 60
+    max_tier: str = "A"
+    mode: str = "transparent"
+    max_memory_mb: int = 2048
+    max_cpu_percent: int = 80
+    plan_ttl_hours: int = 24
+    max_auto_extend_hours: int = 72
+    max_hypotheses_open: int = 20
+    investigation_ttl_days: int = 90
+    max_tasks_per_cycle: int = 25
+    max_tasks_per_hour: int = 100
+    max_tasks_per_asset_per_hour: int = 10
+    task_ttl_minutes: int = 60
+    max_context_findings: int = 400
+    context_token_budget: int = 24000
+    monitor_cooldown_seconds: int = 1800
+    max_concurrency: int = 5
+    max_actions_per_minute: int = 60
+
+
+@dataclass(frozen=True)
+class GraphConfig:
+    include_out_of_scope: bool = False
+    max_nodes: int = 5000
+
+
+@dataclass(frozen=True)
+class IntelConfig:
+    max_age_hours: int = 168
+    kev_path: str = ""
+    epss_path: str = ""
+    nvd_path: str = ""
+    osv_path: str = ""
+
+
+@dataclass(frozen=True)
+class MonitorConfig:
+    anomaly_latency_multiplier: float = 10.0
+    anomaly_error_rate: float = 0.5
+    anomaly_max_response_bytes: int = 10485760
+    baseline_probes: int = 5
+
+
+@dataclass(frozen=True)
+class NotifyConfig:
+    notifiers: tuple[str, ...] = ("log",)
+    webhook_url: str = ""
+    webhook_timeout_seconds: int = 10
+
+
+@dataclass(frozen=True)
+class CredentialsConfig:
+    path: str = "credentials.age"
+
+
+@dataclass(frozen=True)
+class RoeConfig:
+    path: str = "roe.signed.toml"
+    public_keys: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RetentionConfig:
+    plans_days: int = 400
+    investigations_days: int = 400
+    actions_days: int = 365
+    artifacts_days: int = 400
+    facts_days: int = 400
+    tasks_days: int = 90
+    notifications_days: int = 30
+    intel_days: int = 30
+
+
+@dataclass(frozen=True)
 class Config:
     state_dir: Path
     schedule: Schedule
@@ -149,6 +544,15 @@ class Config:
     rate_limit: int
     sla_days: dict[str, int]
     max_db_age_hours: int = 168
+    model: ModelConfig = ModelConfig()
+    agent: AgentConfig = AgentConfig()
+    graph: GraphConfig = GraphConfig()
+    intel: IntelConfig = IntelConfig()
+    monitor: MonitorConfig = MonitorConfig()
+    notify: NotifyConfig = NotifyConfig()
+    credentials: CredentialsConfig = CredentialsConfig()
+    roe: RoeConfig = RoeConfig()
+    retention: RetentionConfig = RetentionConfig()
 
     def snapshot(self) -> dict:
         result = asdict(self)
@@ -203,18 +607,40 @@ def load_config(path: Path) -> Config:
         data = tomllib.loads(path.read_text())
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise ConfigError(f"Cannot read {path}: {exc}") from exc
-    keys(data, {"agent", "schedule", "engines", "policy", "targets"}, "top-level")
+    keys(
+        data,
+        {
+            "agent",
+            "schedule",
+            "engines",
+            "policy",
+            "targets",
+            "model",
+            "graph",
+            "intel",
+            "roe",
+            "monitor",
+            "notify",
+            "credentials",
+            "retention",
+        },
+        "top-level",
+    )
     agent = data.get("agent", {})
     engines = data.get("engines", {})
     policy = data.get("policy", {})
-    keys(
-        agent,
-        {"state_dir", "offline", "timeout_seconds", "max_output_mb", "max_db_age_hours"},
-        "agent",
-    )
     keys(engines, {"trivy", "nuclei", "nmap", "nuclei_templates", "rate_limit"}, "engines")
     keys(policy, {"critical_days", "high_days", "medium_days", "low_days"}, "policy")
+    agent_config = read_agent(agent)
+    model = read_model(data.get("model", {}))
+    graph = read_graph(data.get("graph", {}))
+    monitor = read_monitor(data.get("monitor", {}))
+    notify = read_notify(data.get("notify", {}))
+    credentials = read_credentials(data.get("credentials", {}))
+    roe = read_roe(data.get("roe", {}))
+    retention = read_retention(data.get("retention", {}))
     base = path.parent
+    intel = read_intel(data.get("intel", {}), base)
     state_dir = local_path(agent.get("state_dir", ".guardski"), base, "state_dir")
     offline = boolean(agent.get("offline", False), "offline")
     schedule = read_schedule(data.get("schedule", {}))
@@ -362,22 +788,57 @@ def load_config(path: Path) -> Config:
     if any(t.engine == "nuclei" for t in targets):
         if not templates or any(not Path(t).is_file() for t in templates):
             raise ConfigError("Web targets require existing, approved nuclei_templates files")
-    return Config(
-        state_dir,
-        schedule,
-        tuple(targets),
-        offline,
-        integer(agent.get("timeout_seconds", 1800), "timeout_seconds", 1, 86400),
-        integer(agent.get("max_output_mb", 64), "max_output_mb", 1, 1024),
-        *(
-            string(engines.get(name, name), f"engines.{name}")
-            for name in ("trivy", "nuclei", "nmap")
-        ),
-        templates,
-        integer(engines.get("rate_limit", 5), "rate_limit", 1, 100),
-        {
+    config = Config(
+        state_dir=state_dir,
+        schedule=schedule,
+        targets=tuple(targets),
+        offline=offline,
+        timeout_seconds=integer(agent.get("timeout_seconds", 1800), "timeout_seconds", 1, 86400),
+        max_output_mb=integer(agent.get("max_output_mb", 64), "max_output_mb", 1, 1024),
+        trivy=string(engines.get("trivy", "trivy"), "engines.trivy"),
+        nuclei=string(engines.get("nuclei", "nuclei"), "engines.nuclei"),
+        nmap=string(engines.get("nmap", "nmap"), "engines.nmap"),
+        templates=templates,
+        rate_limit=integer(engines.get("rate_limit", 5), "rate_limit", 1, 100),
+        sla_days={
             severity: integer(policy.get(f"{severity.lower()}_days", default), severity, 1, 3650)
             for severity, default in (("CRITICAL", 7), ("HIGH", 30), ("MEDIUM", 90), ("LOW", 180))
         },
-        integer(agent.get("max_db_age_hours", 168), "max_db_age_hours", 1, 8760),
+        max_db_age_hours=integer(agent.get("max_db_age_hours", 168), "max_db_age_hours", 1, 8760),
+        model=model,
+        agent=agent_config,
+        graph=graph,
+        intel=intel,
+        monitor=monitor,
+        notify=notify,
+        credentials=credentials,
+        roe=roe,
+        retention=retention,
     )
+    _validate(config)
+    return config
+
+
+def _validate(config: Config) -> None:
+    """Cross-block validation that no single reader can perform alone (SPEC §10)."""
+    endpoint = config.model.endpoint
+    scheme = urlsplit(endpoint).scheme
+    host = _endpoint_host(endpoint)
+    private = _is_loopback_or_private(host)
+    if scheme == "http" and not private:
+        raise ConfigError("model.endpoint must use https:// for a non-loopback host")
+    if config.offline and not private:
+        raise ConfigError("model.endpoint must be loopback or private while offline = true")
+    if config.model.provider == "openai" and not private and scheme != "https":
+        raise ConfigError("model.endpoint must use https:// for a public host")
+    if config.notify.webhook_url:
+        webhook = urlsplit(config.notify.webhook_url)
+        if webhook.scheme != "https" and not _is_loopback_or_private(webhook.hostname or ""):
+            raise ConfigError("notify.webhook_url must use https:// for a non-loopback host")
+    if config.agent.discovery_enabled and not config.agent.reasoning_enabled:
+        raise ConfigError("discovery_enabled requires reasoning_enabled = true")
+    if config.agent.context_token_budget > config.model.input_token_budget:
+        raise ConfigError("agent.context_token_budget must be <= model.input_token_budget")
+    if config.model.structured_output == "grammar":
+        if not config.model.grammar_path or not Path(config.model.grammar_path).is_file():
+            raise ConfigError("structured_output = grammar requires a readable grammar_path")
