@@ -356,3 +356,41 @@ def test_inventory_parsers():
     listeners = parse_listeners('LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=1,fd=3))')
     assert listeners[0]["port"] == 22
     assert listeners[0]["process"] == "sshd"
+
+
+def test_topology_records_paths_and_segments(config, store):
+    from dataclasses import replace
+
+    from guardski import topology
+    from guardski.config import Target
+    from guardski.graph import build_graph
+    from guardski.scanners import Finding
+
+    target = Target("net", "network", "10.0.0.0/29", "ops", config.schedule, ("vuln",), "80")
+    net_config = replace(config, targets=(target,))
+    store.start("r1", target, net_config)
+    store.finish(
+        "r1",
+        target,
+        net_config,
+        [Finding("open-tcp-80", "inventory", "INFO", "x", "10.0.0.1:80/tcp")],
+        {
+            "host_inventory": [
+                {"addr": "10.0.0.1", "hostname": "", "os": "", "state": "up"},
+                {"addr": "10.0.0.2", "hostname": "", "os": "", "state": "up"},
+            ]
+        },
+        "",
+        None,
+    )
+
+    def runner(argv):
+        host = argv[-1]
+        third = "198.51.100.1" if host == "10.0.0.1" else "198.51.100.2"
+        return f"traceroute to {host}\n 1 10.0.0.254 1ms\n 2 192.0.2.1 2ms\n 3 {third} 3ms\n"
+
+    result = topology.measure(store, net_config, "op", runner=runner, now=NOW)
+    assert result["traced"] == 2
+    built = build_graph(store, net_config, now=NOW)
+    kinds = {edge["kind"] for edge in built.edges}
+    assert "path_via" in kinds and "same_segment" in kinds

@@ -23,6 +23,7 @@ TTL_SECONDS: dict[str, int] = {
     "service_binding": 30 * DAYS,
     "sbom_component": 30 * DAYS,
     "host_observation": 1 * DAYS,
+    "network_path": 7 * DAYS,
 }
 
 KNOWN_KINDS = tuple(TTL_SECONDS)
@@ -353,3 +354,24 @@ def derive_from_scan(target, findings, metadata, run_id, artifact_hash, now):
             )
         )
     return derived
+
+
+def record_path(
+    asset_id,
+    *,
+    hops,
+    source_action_id,
+    artifact_hash,
+    observed_at,
+    subject=None,
+):
+    return _make(
+        "network_path",
+        asset_id,
+        subject or asset_id,
+        {"hops": list(hops)},
+        provenance={"origin": "action", "action_id": source_action_id},
+        artifact_hash=artifact_hash,
+        observed_at=observed_at,
+        source_action_id=source_action_id,
+    )

@@ -23,6 +23,7 @@ from . import metrics as metrics_mod
 from . import plans as plans_mod
 from . import roe as roe_mod
 from . import sbom as sbom_mod
+from . import topology as topology_mod
 from .config import load_config
 from .evidence import export_bundle, sign_bundle, verify_bundle, verify_bundle_signature
 from .providers import build_provider
@@ -122,6 +123,9 @@ def parser() -> argparse.ArgumentParser:
     sbom_cmd = commands.add_parser("sbom", help="Generate a CycloneDX SBOM from facts")
     sbom_cmd.add_argument("--output", required=True, type=Path)
     sbom_cmd.add_argument("--asset")
+    topo_cmd = commands.add_parser("topology", help="Measure network paths between assets")
+    topo_cmd.add_argument("action", choices=["trace"])
+    topo_cmd.add_argument("--actor", required=True)
     intel = commands.add_parser("intel", help="Offline vulnerability intelligence")
     intel.add_argument("action", choices=["import", "status", "fetch"])
     intel.add_argument("file", nargs="?")
@@ -666,6 +670,8 @@ def main(argv: list[str] | None = None) -> int:
             emit(compliance_mod.write_report(store, config, args.framework, args.output))
         elif args.command == "sbom":
             emit(sbom_mod.write(store, args.output, args.asset))
+        elif args.command == "topology":
+            emit(topology_mod.measure(store, config, args.actor))
         elif args.command == "assets":
             emit(cmdb_mod.import_assets(store, args.file, args.actor))
         elif args.command == "identity":

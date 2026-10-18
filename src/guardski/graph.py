@@ -296,6 +296,33 @@ def build_graph(
                 }
             )
 
+    paths = {}
+    for fact in fact_rows:
+        if fact["kind"] != "network_path":
+            continue
+        hops = [hop for hop in fact["value"].get("hops", []) if hop != "*"]
+        previous = fact["asset_id"]
+        for hop in hops:
+            hop_id = f"hop:{hop}"
+            add_node(hop_id, "hop", addr=hop)
+            edges.append({"kind": "path_via", "src": previous, "dst": hop_id, "attributes": {}})
+            previous = hop_id
+        paths[fact["asset_id"]] = tuple(hops[:2])
+    groups = {}
+    for asset, prefix in paths.items():
+        groups.setdefault(prefix, []).append(asset)
+    for members in groups.values():
+        for index, left in enumerate(members):
+            for right in members[index + 1 :]:
+                edges.append(
+                    {
+                        "kind": "same_segment",
+                        "src": left,
+                        "dst": right,
+                        "attributes": {"observed": True},
+                    }
+                )
+
     for finding in findings:
         target = targets.get(finding["target_id"])
         if target is None:
