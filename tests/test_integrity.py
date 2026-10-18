@@ -10,9 +10,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from guardski.agent import agent_lock
 from guardski.evidence import export_bundle, verify_bundle
 from guardski.scanners import ScanError, database_evidence
+from guardski.scheduler import agent_lock
 
 
 def test_database_freshness_and_provenance(config):
@@ -100,7 +100,7 @@ def test_inherited_lock_survives_parent_crash(config, tmp_path):
     script = """
 import os, subprocess, sys
 from pathlib import Path
-from guardski.agent import agent_lock
+from guardski.scheduler import agent_lock
 with agent_lock(Path(sys.argv[1])) as lease:
     child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'],
                              pass_fds=(lease,))

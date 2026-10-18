@@ -104,7 +104,7 @@ def test_tier_c_requires_dual_approval_and_actor(config, store):
 def test_compliance_report_over_evidence(config, store, tmp_path):
     report = build_report(store, config, "pci", now=NOW)
     assert report["audit_chain_head"]
-    assert {c["control"] for c in report["controls"]} == {"pci-11.4", "pci-11.2"}
+    assert {c["control"] for c in report["controls"]} == {"pci-11.3", "pci-11.4"}
     assert all(c["claim"] == "gap" for c in report["controls"])
     written = write_report(store, config, "pci", tmp_path, now=NOW)
     assert (tmp_path / "pci-report.json").is_file()

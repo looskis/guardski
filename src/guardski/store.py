@@ -193,11 +193,13 @@ class Store:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA foreign_keys=ON")
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1, 2):
+        if version not in (0, 1, 2, 3):
             raise ValueError(f"Unsupported database schema version: {version}")
         self.db.executescript(SCHEMA_V1)
         if version < 2:
             self._migrate_v2(from_version=version)
+        if version < 3:
+            self._migrate_v3(from_version=2 if version >= 1 else 0)
 
     def _migrate_v2(self, from_version: int) -> None:
         with self.db:
@@ -206,6 +208,13 @@ class Store:
             if from_version >= 1:
                 # A fresh install (0) is not a migration; upgrades are auditable.
                 self.event("schema_migrated", {"from_version": from_version, "to_version": 2})
+
+    def _migrate_v3(self, from_version: int) -> None:
+        with self.db:
+            self.db.execute("ALTER TABLE credentials ADD COLUMN ref TEXT")
+            self.db.execute("PRAGMA user_version=3")
+            if from_version >= 1:
+                self.event("schema_migrated", {"from_version": from_version, "to_version": 3})
 
     def close(self) -> None:
         self.db.close()

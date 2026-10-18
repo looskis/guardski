@@ -4,18 +4,21 @@ import json
 import time
 from pathlib import Path
 
+FRAMEWORK_ORDER = ("pci", "soc2", "ctem")
+
+# Priority per decision 3: PCI DSS 11.3/11.4 -> SOC 2 -> CTEM. DORA TLPT is out of v1.
 FRAMEWORKS = {
     "pci": {
+        "pci-11.3": "External and internal vulnerability scanning",
         "pci-11.4": "Testing after significant change",
-        "pci-11.2": "Vulnerability scanning of infrastructure",
-    },
-    "ctem": {
-        "ctem-scope": "Scope and asset inventory",
-        "ctem-validate": "Validate exposure",
     },
     "soc2": {
         "cc7.1": "Detect configuration changes and vulnerabilities",
         "cc4.1": "Monitoring and evaluation of controls",
+    },
+    "ctem": {
+        "ctem-scope": "Scope and asset inventory",
+        "ctem-validate": "Validate exposure",
     },
 }
 

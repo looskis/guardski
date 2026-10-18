@@ -80,7 +80,7 @@ def _run(store, config, roe, task, request, stop, now, transport, credentials):
 
 
 def _run_scanner(store, config, task, request, stop):
-    from ..agent import scan_target
+    from ..scheduler import scan_target
 
     target = next((t for t in config.targets if t.id == task["target_id"]), None)
     if target is None:

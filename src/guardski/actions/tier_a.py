@@ -89,7 +89,20 @@ def _epoch(stamp: str | None) -> float | None:
         return None
 
 
-def run_reachability(transport: Transport, request: ActionRequest) -> ActionResult:
+def _credential(request, secrets):
+    if secrets:
+        for credential_id in request.credential_ids:
+            value = secrets.get(credential_id)
+            if value:
+                return {
+                    "username": request.parameters.get("username", ""),
+                    "value": value,
+                    "role": request.parameters.get("role", ""),
+                }
+    return request.parameters.get("credential") or {}
+
+
+def run_reachability(transport: Transport, request: ActionRequest, secrets=None) -> ActionResult:
     addr = str(request.parameters.get("addr") or (request.targets[0] if request.targets else ""))
     port = int(request.parameters.get("port", 0))
     result = transport.reachability(addr, port)
@@ -100,21 +113,21 @@ def run_reachability(transport: Transport, request: ActionRequest) -> ActionResu
     )
 
 
-def run_banner(transport: Transport, request: ActionRequest) -> ActionResult:
+def run_banner(transport: Transport, request: ActionRequest, secrets=None) -> ActionResult:
     addr = str(request.parameters.get("addr") or (request.targets[0] if request.targets else ""))
     port = int(request.parameters.get("port", 0))
     result = transport.banner(addr, port)
     return ActionResult("succeeded", "banner", facts=(("service_banner", addr, port, result),))
 
 
-def run_http_status(transport: Transport, request: ActionRequest) -> ActionResult:
+def run_http_status(transport: Transport, request: ActionRequest, secrets=None) -> ActionResult:
     url = str(request.parameters.get("url") or (request.targets[0] if request.targets else ""))
     path = str(request.parameters.get("path", "/"))
     result = transport.http_status(url, path)
     return ActionResult("succeeded", "http", facts=(("http_metadata", url, path, result),))
 
 
-def run_tls_inspect(transport: Transport, request: ActionRequest) -> ActionResult:
+def run_tls_inspect(transport: Transport, request: ActionRequest, secrets=None) -> ActionResult:
     host = str(request.parameters.get("host") or (request.targets[0] if request.targets else ""))
     port = int(request.parameters.get("port", 443))
     result = transport.tls_inspect(host, port)
@@ -125,9 +138,9 @@ def run_tls_inspect(transport: Transport, request: ActionRequest) -> ActionResul
     )
 
 
-def run_auth_check(transport: Transport, request: ActionRequest) -> ActionResult:
+def run_auth_check(transport: Transport, request: ActionRequest, secrets=None) -> ActionResult:
     url = str(request.parameters.get("url") or (request.targets[0] if request.targets else ""))
-    credential = request.parameters.get("credential") or {}
+    credential = _credential(request, secrets)
     result = transport.auth_check(url, credential)
     return ActionResult(
         "succeeded",
@@ -136,12 +149,14 @@ def run_auth_check(transport: Transport, request: ActionRequest) -> ActionResult
     )
 
 
-def run_package_inventory(transport: Transport, request: ActionRequest) -> ActionResult:
+def run_package_inventory(
+    transport: Transport, request: ActionRequest, secrets=None
+) -> ActionResult:
     asset_id = request.asset_ids[0] if request.asset_ids else ""
     method = str(request.parameters.get("method", "ssh"))
     if method not in ("ssh", "winrm"):
         return ActionResult("failed", "unknown_method")
-    credential = request.parameters.get("credential") or {}
+    credential = _credential(request, secrets)
     result = transport.package_inventory(asset_id, method, credential)
     facts = ()
     for package in result.get("packages", []):

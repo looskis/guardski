@@ -331,8 +331,14 @@ def read_notify(data: dict) -> NotifyConfig:
 
 
 def read_credentials(data: dict) -> CredentialsConfig:
-    keys(data, {"path"}, "credentials")
-    return CredentialsConfig(path=string(data.get("path", "credentials.age"), "credentials.path"))
+    keys(data, {"safeski_command", "allow_env", "allow_file"}, "credentials")
+    return CredentialsConfig(
+        safeski_command=string(
+            data.get("safeski_command", "safeski"), "credentials.safeski_command"
+        ),
+        allow_env=boolean(data.get("allow_env", True), "credentials.allow_env"),
+        allow_file=boolean(data.get("allow_file", True), "credentials.allow_file"),
+    )
 
 
 def read_roe(data: dict) -> RoeConfig:
@@ -359,12 +365,12 @@ def read_retention(data: dict) -> RetentionConfig:
         "retention",
     )
     config = RetentionConfig(
-        plans_days=integer(data.get("plans_days", 400), "plans_days", 1, 36500),
+        plans_days=integer(data.get("plans_days", 430), "plans_days", 1, 36500),
         investigations_days=integer(
-            data.get("investigations_days", 400), "investigations_days", 1, 36500
+            data.get("investigations_days", 430), "investigations_days", 1, 36500
         ),
-        actions_days=integer(data.get("actions_days", 365), "actions_days", 1, 36500),
-        artifacts_days=integer(data.get("artifacts_days", 400), "artifacts_days", 1, 36500),
+        actions_days=integer(data.get("actions_days", 400), "actions_days", 1, 36500),
+        artifacts_days=integer(data.get("artifacts_days", 430), "artifacts_days", 1, 36500),
         facts_days=integer(data.get("facts_days", 400), "facts_days", 1, 36500),
         tasks_days=integer(data.get("tasks_days", 90), "tasks_days", 1, 36500),
         notifications_days=integer(
@@ -508,7 +514,9 @@ class NotifyConfig:
 
 @dataclass(frozen=True)
 class CredentialsConfig:
-    path: str = "credentials.age"
+    safeski_command: str = "safeski"
+    allow_env: bool = True
+    allow_file: bool = True
 
 
 @dataclass(frozen=True)
@@ -519,10 +527,10 @@ class RoeConfig:
 
 @dataclass(frozen=True)
 class RetentionConfig:
-    plans_days: int = 400
-    investigations_days: int = 400
-    actions_days: int = 365
-    artifacts_days: int = 400
+    plans_days: int = 430
+    investigations_days: int = 430
+    actions_days: int = 400
+    artifacts_days: int = 430
     facts_days: int = 400
     tasks_days: int = 90
     notifications_days: int = 30

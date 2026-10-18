@@ -42,7 +42,9 @@ def test_notify_records_and_covert_suppresses(config, store):
     assert notify(store, config, event)
     rows = store.db.execute("SELECT COUNT(*) FROM notifications").fetchone()[0]
     assert rows == 1
-    covert = config.__class__(**{**config.__dict__, "agent": config.agent.__class__(mode="covert")})
+    # Covert suppression now requires a signed RoE, not agent.mode alone (#8).
+    from guardski.roe import RoE
+
     info = NotificationEvent(
         kind="plan_generated",
         severity="info",
@@ -51,14 +53,30 @@ def test_notify_records_and_covert_suppresses(config, store):
         actor="agent",
         timestamp=2.0,
     )
-    notify(store, covert, info)
+    covert_roe = RoE(id="r", issued_at=0, expires_at=10000, mode="covert")
+    notify(store, config, info, roe=covert_roe, now=5.0)
     assert store.db.execute("SELECT COUNT(*) FROM notifications").fetchone()[0] == 1
 
 
 def test_credentials_metadata_lifecycle(config, store):
-    add_credential(store, "cred-1", "password", ["10.0.0.0/24"], "operator", role="admin")
+    import os
+
+    from guardski.credentials import resolve_credential
+
+    add_credential(
+        store,
+        "cred-1",
+        "password",
+        ["10.0.0.0/24"],
+        "operator",
+        "env:GUARDSKI_TEST_CRED",
+        role="admin",
+    )
     assert list_credentials(store)[0]["id"] == "cred-1"
+    assert metadata(store)["cred-1"]["ref"] == "env:GUARDSKI_TEST_CRED"
     assert metadata(store)["cred-1"]["scope"] == ["10.0.0.0/24"]
+    os.environ["GUARDSKI_TEST_CRED"] = "s3cret"
+    assert resolve_credential(store, config, "cred-1") == "s3cret"
     revoke_credential(store, "cred-1", "operator")
     assert list_credentials(store) == []
     assert store.verify_events()

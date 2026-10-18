@@ -37,6 +37,8 @@ class RoE:
     allowed_actions: tuple[str, ...] = ()
     denied_actions: tuple[str, ...] = ()
     max_tasks_per_hour: int = 100
+    mode: str = "transparent"
+    mode_expires_at: float | None = None
     approvals: tuple[dict, ...] = ()
     signer_fingerprints: tuple[str, ...] = ()
 
@@ -69,6 +71,8 @@ def parse_roe(data: dict) -> RoE:
     tier = str(data.get("max_tier", "A"))
     if tier not in TIERS:
         raise RoeError("max_tier must be A, B, or C")
+    if str(data.get("mode", "transparent")) not in ("transparent", "covert"):
+        raise RoeError("mode must be transparent or covert")
     windows = tuple(_window(w) for w in data.get("time_windows", []))
     approvals = tuple(data.get("approvals", []))
     roe = RoE(
@@ -86,6 +90,8 @@ def parse_roe(data: dict) -> RoE:
         allowed_actions=tuple(data.get("allowed_actions", [])),
         denied_actions=tuple(data.get("denied_actions", [])),
         max_tasks_per_hour=int(data.get("max_tasks_per_hour", 100)),
+        mode=str(data.get("mode", "transparent")),
+        mode_expires_at=data.get("mode_expires_at"),
         approvals=approvals,
     )
     if tier == "C" and len(approvals) < 2:

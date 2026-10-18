@@ -19,12 +19,12 @@ from . import intel as intel_mod
 from . import metrics as metrics_mod
 from . import plans as plans_mod
 from . import roe as roe_mod
-from .agent import run
 from .config import load_config
 from .evidence import export_bundle, sign_bundle, verify_bundle, verify_bundle_signature
 from .providers import build_provider
 from .reasoning.agent import generate_plan
 from .reasoning.discovery import run_cycle
+from .scheduler import run
 from .store import STATUSES, Store
 
 
@@ -118,6 +118,7 @@ def parser() -> argparse.ArgumentParser:
     cred.add_argument("credential_id", nargs="?")
     cred.add_argument("--kind")
     cred.add_argument("--scope", action="append", default=[])
+    cred.add_argument("--ref")
     cred.add_argument("--actor")
     report = commands.add_parser("report", help="Render a compliance report pack")
     report.add_argument("--framework", choices=["pci", "ctem", "soc2"], required=True)
@@ -341,10 +342,10 @@ def main(argv: list[str] | None = None) -> int:
             if args.action == "list":
                 emit(credentials_mod.list_credentials(store))
             elif args.action == "add":
-                if not args.kind or not args.scope or not args.actor:
-                    raise ValueError("credential add requires --kind, --scope, and --actor")
+                if not args.kind or not args.scope or not args.actor or not args.ref:
+                    raise ValueError("credential add requires --kind, --scope, --ref, and --actor")
                 credentials_mod.add_credential(
-                    store, args.credential_id, args.kind, args.scope, args.actor
+                    store, args.credential_id, args.kind, args.scope, args.actor, args.ref
                 )
                 emit({"added": args.credential_id})
             else:

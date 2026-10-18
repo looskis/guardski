@@ -78,9 +78,22 @@ def build_notifiers(config) -> list[Notifier]:
 COVERT_ALLOWED = {"critical"}
 
 
-def notify(store, config, event: NotificationEvent, notifiers=None) -> bool:
+def effective_mode(config, roe=None, now=None):
+    """Covert mode requires a signed RoE that enables it and has not expired (#8).
+
+    `agent.mode` alone no longer suppresses notifications.
+    """
+    now = time.time() if now is None else now
+    if roe is not None and getattr(roe, "mode", "transparent") == "covert":
+        expires = getattr(roe, "mode_expires_at", None)
+        if expires is None or now < expires:
+            return "covert"
+    return "transparent"
+
+
+def notify(store, config, event: NotificationEvent, notifiers=None, roe=None, now=None) -> bool:
     delivered = True
-    if config.agent.mode == "covert" and event.severity not in COVERT_ALLOWED:
+    if effective_mode(config, roe, now) == "covert" and event.severity not in COVERT_ALLOWED:
         return True
     handlers = notifiers if notifiers is not None else build_notifiers(config)
     notification_id = str(uuid.uuid4())

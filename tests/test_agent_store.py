@@ -5,9 +5,9 @@ from threading import Event
 
 import pytest
 
-from guardski.agent import agent_lock, run, scan_target
 from guardski.evidence import export_bundle, verify_bundle
 from guardski.scanners import Finding
+from guardski.scheduler import agent_lock, run, scan_target
 from guardski.store import Store
 
 

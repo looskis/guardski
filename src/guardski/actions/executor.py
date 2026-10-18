@@ -5,6 +5,7 @@ import json
 import time
 import uuid
 
+from .. import credentials as credentials_mod
 from .. import facts as facts_mod
 from .. import ids
 from ..policy import authorize
@@ -12,7 +13,7 @@ from . import CATALOG, ActionResult, tier_a
 from .monitor import ExecutionMonitor
 
 
-def _sbom_match(transport, request):
+def _sbom_match(transport, request, secrets=None):
     asset_id = request.asset_ids[0] if request.asset_ids else ""
     value = {
         "purl": request.parameters.get("package", ""),
@@ -186,12 +187,20 @@ def execute(
         {"action_id": request.action_id, "roe_id": roe.id, "targets": list(request.targets)},
     )
     monitor = monitor or ExecutionMonitor(config.monitor, config.agent)
+    secrets = {}
+    for credential_id in request.credential_ids:
+        try:
+            secrets[credential_id] = credentials_mod.resolve_credential(
+                store, config, credential_id
+            )
+        except credentials_mod.CredentialError:
+            secrets[credential_id] = None
     handler = HANDLERS.get(request.action_id)
     if handler is None:
         result = ActionResult("failed", "unsupported_action")
     else:
         try:
-            result = handler(transport, request)
+            result = handler(transport, request, secrets)
         except Exception as exc:  # noqa: BLE001 - a failed probe must be recorded, not crash
             result = ActionResult("failed", f"{type(exc).__name__}: {exc}")
     out_facts = _record_facts(store, request, action_row, result, now) if result.facts else []

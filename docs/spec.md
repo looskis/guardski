@@ -1,6 +1,6 @@
 # Guardski — System Specification
 
-_Last updated: 2026-10-29 (revision 3 — review corrections)_
+_Last updated: 2026-11-01 (revision 4 — product decisions)_
 
 _Status: draft. Scope: the full agentic layer (Phases 1–5 of [the vision](vision.md)),
 specified as an extension of the Phase 0 code already in `src/guardski/`._
@@ -96,7 +96,7 @@ agentic layer inherits all of it.
 | `plans` | NEW — generated plans with approval status | agent writes; operator approves |
 | `actions` | NEW — executed actions with authorization + results | agent writes |
 | `notifications` | NEW — notification delivery records | agent writes |
-| `credentials` | NEW — metadata only (encrypted values in `credentials.age`) | read-only to agent; operator writes via CLI |
+| `credentials` | NEW — metadata + resolver ref (value never stored) | read-only to agent; operator writes via CLI |
 
 **Non-negotiable invariants the agent inherits:**
 
@@ -134,15 +134,14 @@ If a proposed feature cannot hold all eight, it is out of scope until it can.
 
 ## 2. Naming: the two "agents"
 
-Today `agent.py` is the **scan scheduler** (`run`, `scan_target`, `agent_lock`). The vision
+`scheduler.py` (formerly `agent.py`) is the **scan scheduler** (`run`, `scan_target`, `agent_lock`). The vision
 calls the new LLM layer "the agent" too. To avoid a permanent collision:
 
-- **Proposal:** rename the current `agent.py` → `scheduler.py` (pure mechanical move,
-  Phase 1 prep), and introduce the reasoning layer under `reasoning/`.
+- **Decided (§12):** the former `agent.py` is now `scheduler.py`, and the reasoning layer
+  lives under `reasoning/`.
 - Throughout this spec, **"scheduler"** = the Phase 0 scan loop; **"the agent"** = the new
   LLM reasoning layer.
 
-(Flagged in Section 12; the rename is cosmetic and can be skipped if the user prefers.)
 
 ## 3. Target module layout
 
@@ -549,7 +548,7 @@ class GenerationResult:
   and tasks are persisted in one short transaction. A manual `guardski plan` while the
   daemon is running must **not** attempt to take the lock — `agent_lock` is
   `LOCK_EX|LOCK_NB` and `agent.run()` holds it for the daemon's entire lifetime
-  (`agent.py:118-144`), so it would fail instantly with "state directory in use". Instead
+  (`scheduler.py:118-144`), so it would fail instantly with "state directory in use". Instead
   the CLI writes a `plan_requests` row and either waits for the daemon to service it or
   exits with a clear "queued" result. With no daemon running, the CLI takes the lease for
   the whole operation.
@@ -1518,7 +1517,7 @@ Enforced as the final check in `policy.authorize` and independently asserted ins
 action's `execute`, so a bug in one layer is not sufficient to cause harm.
 
 Modes: **transparent** (default, blue team notified) vs **covert** (opt-in, for authorized
-red-team exercises) — a config flag that only changes notification, never the hard stops.
+red-team exercises) — enabled only by a signed RoE with an expiry (decision 8); agent.mode alone does not enable it, and it changes notification only, never the hard stops.
 
 ### 7.1 Agent self-protection
 
@@ -1600,7 +1599,7 @@ class NotificationEvent:
 - `hypothesis_confirmed`, `hypothesis_refuted` — info
 - `discovery_cycle_finished` — info (counts only)
 
-**Covert mode:** when `agent.mode = "covert"`, notifications are suppressed except
+**Covert mode:** when the signed RoE enables covert mode (with an expiry), notifications are suppressed except
 `critical` severity. The audit chain is unaffected — covert mode changes notification,
 never logging.
 
@@ -1627,11 +1626,7 @@ endpoints, lab accounts). Credentials are **never** stored in the RoE (which is 
 and auditable), never in the config, never in the audit chain, and never in plan
 narratives.
 
-**Storage:** credentials are stored in an encrypted file at
-`state_dir/credentials.age`, encrypted with [age](https://age-encryption.org/) (or GPG
-symmetric as a fallback). The passphrase or key is supplied via env
-(`GUARDSKI_CREDENTIALS_KEY`) at daemon start, held in memory only, and never written
-to disk or logs.
+**Storage:** Guardski stores only a reference, never a value (decision 4). A credential row holds `ref` (e.g. `safeski:NAME`, `env:NAME`, `file:/path`); the value is resolved at execution time through the pluggable backend and never written to the database, audit chain, artifacts, or logs. safeski is Secure Enclave-backed and policy-gated (macOS); `env:` and `file:` (mode 0600) cover Linux until safeski gains a TPM backend.
 
 **Format (decrypted, in memory):**
 
@@ -1678,8 +1673,8 @@ as a warning.
 control frameworks.
 
 - A mapping file (shipped, versioned) relates finding categories, coverage state, SLA
-  adherence, and action/authorization events to control IDs: **PCI DSS 11.4** (testing
-  after significant change), **CTEM** stages, **SOC 2** CC-series.
+  adherence, and action/authorization events to control IDs: **PCI DSS 11.3/11.4** (scanning; testing
+  after significant change), then **SOC 2** CC-series, then **CTEM** stages; DORA TLPT is out of v1 (decision 3).
 - `guardski report --framework pci|ctem|soc2 --output <dir>` renders a signed pack from the
   existing bundle: coverage and **declared blind spots**, overdue/accepted-risk posture,
   validated chains with their authorizations, discovery provenance (facts, task
@@ -1831,15 +1826,17 @@ webhook_url = ""                   # required if "webhook" in notifiers; https:/
 webhook_timeout_seconds = 10
 
 [credentials]
-path = "credentials.age"           # encrypted credential store (relative to state_dir)
-# the decryption key comes from env: GUARDSKI_CREDENTIALS_KEY
+# references only; values resolve at execution, never stored (#4)
+safeski_command = "safeski"        # safeski:NAME refs (macOS)
+allow_env = true                   # permit env:NAME refs (Linux)
+allow_file = true                   # permit file:/path refs (mode 0600)
 
 [retention]
 # plans and artifacts must outlive the actions and reports that cite them
-plans_days = 400              # >= actions_days + 30; enforced at load
-investigations_days = 400     # >= plans_days; plans cite investigations
-actions_days = 365            # retain action records for 1 year
-artifacts_days = 400          # proof artifacts and plans share a retention floor
+plans_days = 430              # >= actions_days + 30; enforced at load
+investigations_days = 430     # >= plans_days; plans cite investigations
+actions_days = 400            # retain action records for 1 year
+artifacts_days = 430          # proof artifacts and plans share a retention floor
 facts_days = 400              # ground truth cited by plans/reports
 tasks_days = 90               # terminal scan_tasks / plan_requests history
 notifications_days = 30       # notification records are transient
@@ -2200,57 +2197,59 @@ trusts = ["identity-provider-01"]   # operator-declared asset_trusts_asset edges
 - Migration: a fresh DB reaches v2; a v1 DB upgrades additively; FK creation order holds
   (`actions` before the `asset_facts`/`findings` columns that reference it).
 
-## 12. Open decisions (need the user)
+## 12. Decisions
 
-1. **Rename `agent.py` → `scheduler.py`?** Clean but touches the one existing module name.
-   Default in this spec: yes, as Phase 1 prep. _(open)_
-2. **Signature scheme for RoE:** Ed25519 via the `cryptography` library (fully offline,
-   no new dependency on a network PKI). Acceptable, or is there an existing org
-   key-management path to integrate (HSM, KMS, PKCS#11)? _(open)_
-3. **Compliance frameworks for Phase 4 v1:** spec assumes PCI 11.4, CTEM, SOC 2. Confirm
-   the priority order and whether DORA TLPT mapping is in or out for v1. _(open)_
-4. **Credential store encryption:** age (default) vs GPG symmetric vs an org-managed
-   secrets backend (Vault, AWS Secrets Manager, etc.). The abstraction in §7.3 supports
-   any backend; the default is age for zero-dependency operation. _(open)_
-5. **Notification backends:** the spec ships `log`, `webhook`, and `syslog`. Is there an
-   existing SIEM/SOAR integration (Splunk HEC, Elastic, Sentinel) that should be the
-   default for enterprise buyers? _(open)_
-6. **Retention defaults:** §10 now proposes plans=400d, actions=365d, artifacts=400d,
-   facts=400d, notifications=30d, intel=30d. Confirm against the org's evidence retention
-   policy and any regulatory minimums (PCI DSS requires 12 months for some evidence). The
-   floor constraint (plans/artifacts >= actions + 30) is not open, only the numbers.
-   _(open)_
-7. **RBAC model:** the spec relies on OS-level permissions + `--actor` attribution.
-   Is there a need for in-app RBAC (e.g., separate roles for plan approval vs action
-   execution vs credential management)? _(open)_
-8. **Covert mode policy:** §7 allows `mode = "covert"` to suppress non-critical
-   notifications. Should covert mode require a separate config flag, an RoE field, or
-   dual approval to enable? _(open)_
-9. **Discovery autonomy:** §5.1 authorizes `recon.*` at the RoE level, so an operator
-   approves the *class* and the agent requests tasks without per-task approval. Is that
-   acceptable for regulated deployments, or must every `scan_task` be operator-approved
-   (which would make continuous discovery impractical)? _(open, recommendation: class-level)_
-10. **Intel feed sourcing and licensing:** KEV and EPSS are public; NVD/OSV subsets and
-    vendor advisories have redistribution terms. Do we ship a bundled snapshot, require
-    operator import (current default), or support a signed mirror? _(open)_
-11. **Asset criticality source:** §10 takes criticality/tags from `guardski.toml`. Is a
-    CMDB/cloud-asset import required for v1, or is operator-maintained config acceptable
-    for the design partner? _(open)_
-12. **Local structured output:** which runtimes must support grammar/JSON schema
-    (vLLM, Ollama, llama.cpp)? Do we require it, or accept `prompt_only` with a repair
-    turn for weaker servers? _(open)_
-13. **Identity and trust graph:** bank buyers' highest-value paths are identity-based
-    (M365/Entra, AD, cross-tenant access). This needs an identity connector and new edge
-    types. Is it Phase 3, Phase 6, or explicitly out of scope for v1? _(open)_
-14. **External ingestion priority:** `ingest.py` starts with SARIF. Are Dependabot,
-    OSV-Scanner, Grype, and GitHub code-scanning the next imports, or is ZAP/API coverage
-    more urgent? _(open)_
-15. **Efficacy thresholds:** what approval/confirmation rate and false-positive rate make
-    the agent "working" for a design partner? §11.19 measures them; the target values are
-    a product decision. _(open)_
-16. **Authenticated application coverage:** `coverage.md` lists it as a gap. Does v1
-    claim it, or does the spec state plainly that authenticated app/business-logic
-    testing is out of scope? _(open)_
+No product decisions are currently open. Items below marked _(to build)_ are decided but
+not yet reflected in code or in the sections they reference.
+
+**Resolved (2026-11-01, revision 4 — product decisions):**
+1. **Module naming** — `agent.py` is renamed `scheduler.py` (done). "Agent" means the
+   reasoning layer in `reasoning/`. _(§2)_
+2. **Signing keys** — Ed25519 file keys for v1, behind a pluggable signer interface so a
+   PKCS#11/HSM signer can be added when a buyer requires it. No cloud KMS. _(§5.1, §8.1;
+   interface to build)_
+3. **Compliance frameworks** — priority PCI DSS 11.3/11.4 → SOC 2 → CTEM. DORA TLPT is
+   out of v1. _(§8)_
+4. **Credential secrets** — Guardski persists only a reference, never the value, and resolves
+   it at execution time through a pluggable backend. The first backend is
+   [safeski](https://github.com/looskis/safeski) (`safeski:NAME`, Secure Enclave-backed,
+   policy-gated, audited; macOS only). On Linux the same interface resolves `env:NAME` and
+   `file:/path` (mode 0600) refs until safeski gains a TPM backend. There is no
+   Guardski-managed encrypted vault (the age default is dropped). _(§7.3)_
+5. **Notifications** — no vendor-specific SIEM code. Syslog emits RFC 5424 structured
+   events with a CEF option; webhook stays. _(§7.2; CEF to build)_
+6. **Retention** — actions 400d (was 365d) for margin over PCI DSS 10.5.1's 12 months;
+   plans and artifacts 430d to keep the actions + 30 floor; facts 400d, notifications 30d,
+   intel 30d unchanged. _(§10)_
+7. **RBAC** — key-based roles, no user database. Approvals that matter (RoE, plan approval,
+   Tier-B dry-run approval, credential changes) must be signed by an Ed25519 key listed
+   for that role in config; `--actor` becomes the signer fingerprint where a signature
+   exists. _(§4.7, §6, §7.3; to build)_
+8. **Covert mode** — takes effect only when the signed RoE enables it, with an expiry. The
+   `agent.mode` config value alone no longer suffices. The audit chain records everything
+   in either mode; only outbound notifications are muted. _(§7, §7.2)_
+9. **Discovery autonomy** — class-level: the signed RoE authorizes `recon.*`, and each task
+   is still policy-checked and audit-logged without per-task approval. _(§5.1)_
+10. **Intel feeds** — operator import remains the only path. Add `guardski intel fetch` for
+    a connected staging host that writes a hash-pinned bundle to carry across the air gap.
+    The project neither redistributes nor mirrors feeds. _(§4.1.3; to build)_
+11. **Asset criticality** — operator-maintained config plus an offline CSV/JSON import for
+    CMDB exports. No live CMDB connector. _(§10; import to build)_
+12. **Local structured output** — officially supported: vLLM and llama.cpp (JSON schema /
+    grammar) and Ollama (`format` with a JSON schema). Other servers may use `prompt_only`
+    with one repair turn, recorded in the audit log as weaker enforcement. Invalid output is
+    rejected, never coerced. _(§4.2.2)_
+13. **Identity graph** — in v1, read-only: import an offline Entra ID/AD export (roles,
+    groups, conditional-access policies, cross-tenant settings) as graph nodes and edges for
+    reasoning. No identity actions and no live tenant connection. _(§4.1; to build)_
+14. **Ingestion priority** — next imports are GitHub code-scanning and Dependabot alerts,
+    then Grype/OSV-Scanner. ZAP/API scanners are not planned (see 16). _(§4.1.4; to build)_
+15. **Efficacy thresholds** — the design partner bar is ≥50% of plans approved, ≥30% of
+    hypotheses confirmed or disproved by machine evidence, and ≤10% false positives among
+    confirmed findings. _(§11.19, §14.4)_
+16. **Authenticated application coverage** — explicitly out of scope for v1, consistent with
+    the vision's infra/exposure-chaining focus. `recon.auth_check` only verifies that a
+    credential works. _(coverage.md)_
 
 **Resolved (2026-10-29, revision 3 — review corrections):**
 - **Plan dedup key** — `(context_digest, model_id, prompt_version, builder_version)`;
@@ -2430,7 +2429,7 @@ rotated, which is an operator decision outside the spec).
 
 Schema migrations are versioned via `PRAGMA user_version` (currently 1). The agentic
 layer adds tables and columns (§4.1.2, §4.1.3, §4.5, §4.10, §5.3, §5.7, §7.2, §7.3) and
-bumps to version 2.
+bumps to version 3 (v2 agentic tables, v3 adds credentials.ref).
 
 - **Order matters.** The v2 migration creates the referenced tables before the referencing
   ones: `actions` and `runs.scan_digest` before `asset_facts(source_action_id)` and the
