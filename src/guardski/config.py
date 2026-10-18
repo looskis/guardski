@@ -5,7 +5,7 @@ import ipaddress
 import json
 import re
 import tomllib
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -316,7 +316,19 @@ def read_monitor(data: dict) -> MonitorConfig:
 
 
 def read_notify(data: dict) -> NotifyConfig:
-    keys(data, {"notifiers", "webhook_url", "webhook_timeout_seconds"}, "notify")
+    keys(
+        data,
+        {
+            "notifiers",
+            "webhook_url",
+            "webhook_timeout_seconds",
+            "syslog_format",
+            "cef_vendor",
+            "cef_product",
+            "cef_version",
+        },
+        "notify",
+    )
     notifiers = _str_list(data.get("notifiers", ["log"]), "notify.notifiers")
     for name in notifiers:
         if name not in ("log", "webhook", "syslog"):
@@ -327,6 +339,12 @@ def read_notify(data: dict) -> NotifyConfig:
         webhook_timeout_seconds=integer(
             data.get("webhook_timeout_seconds", 10), "webhook_timeout_seconds", 1, 300
         ),
+        syslog_format=_choice(
+            data.get("syslog_format", "rfc5424"), "syslog_format", ("rfc5424", "cef")
+        ),
+        cef_vendor=str(data.get("cef_vendor", "Guardski")),
+        cef_product=str(data.get("cef_product", "Guardski")),
+        cef_version=str(data.get("cef_version", "0.1.0")),
     )
 
 
@@ -347,6 +365,27 @@ def read_roe(data: dict) -> RoeConfig:
         path=string(data.get("path", "roe.signed.toml"), "roe.path"),
         public_keys=_str_list(data.get("public_keys", []), "roe.public_keys"),
     )
+
+
+def read_signing(data: dict) -> SigningConfig:
+    keys(data, {"provider", "private_key_path"}, "signing")
+    return SigningConfig(
+        provider=_choice(data.get("provider", "file"), "signing.provider", ("file",)),
+        private_key_path=str(data.get("private_key_path", "")),
+    )
+
+
+def read_rbac(data: dict) -> RbacConfig:
+    keys(data, {"roles"}, "rbac")
+    raw = data.get("roles", {})
+    if not isinstance(raw, dict):
+        raise ConfigError("rbac.roles must be a table of public keys")
+    roles = {}
+    for role, values in raw.items():
+        if not isinstance(values, list):
+            raise ConfigError(f"rbac.roles.{role} must be a list of public keys")
+        roles[role] = tuple(string(item, f"rbac.roles.{role}") for item in values)
+    return RbacConfig(roles=roles)
 
 
 def read_retention(data: dict) -> RetentionConfig:
@@ -510,6 +549,10 @@ class NotifyConfig:
     notifiers: tuple[str, ...] = ("log",)
     webhook_url: str = ""
     webhook_timeout_seconds: int = 10
+    syslog_format: str = "rfc5424"
+    cef_vendor: str = "Guardski"
+    cef_product: str = "Guardski"
+    cef_version: str = "0.1.0"
 
 
 @dataclass(frozen=True)
@@ -517,6 +560,17 @@ class CredentialsConfig:
     safeski_command: str = "safeski"
     allow_env: bool = True
     allow_file: bool = True
+
+
+@dataclass(frozen=True)
+class SigningConfig:
+    provider: str = "file"
+    private_key_path: str = ""
+
+
+@dataclass(frozen=True)
+class RbacConfig:
+    roles: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -559,6 +613,8 @@ class Config:
     monitor: MonitorConfig = MonitorConfig()
     notify: NotifyConfig = NotifyConfig()
     credentials: CredentialsConfig = CredentialsConfig()
+    signing: SigningConfig = SigningConfig()
+    rbac: RbacConfig = RbacConfig()
     roe: RoeConfig = RoeConfig()
     retention: RetentionConfig = RetentionConfig()
 
@@ -630,6 +686,8 @@ def load_config(path: Path) -> Config:
             "monitor",
             "notify",
             "credentials",
+            "signing",
+            "rbac",
             "retention",
         },
         "top-level",
@@ -647,6 +705,8 @@ def load_config(path: Path) -> Config:
     credentials = read_credentials(data.get("credentials", {}))
     roe = read_roe(data.get("roe", {}))
     retention = read_retention(data.get("retention", {}))
+    signing = read_signing(data.get("signing", {}))
+    rbac = read_rbac(data.get("rbac", {}))
     base = path.parent
     intel = read_intel(data.get("intel", {}), base)
     state_dir = local_path(agent.get("state_dir", ".guardski"), base, "state_dir")
@@ -820,6 +880,8 @@ def load_config(path: Path) -> Config:
         monitor=monitor,
         notify=notify,
         credentials=credentials,
+        signing=signing,
+        rbac=rbac,
         roe=roe,
         retention=retention,
     )

@@ -100,6 +100,7 @@ def parser() -> argparse.ArgumentParser:
     approve.add_argument("plan_id")
     approve.add_argument("--actor", required=True)
     approve.add_argument("--valid-for")
+    approve.add_argument("--signature", type=Path)
     reject = commands.add_parser("reject-plan", help="Reject a plan with a reason")
     reject.add_argument("plan_id")
     reject.add_argument("--actor", required=True)
@@ -110,6 +111,7 @@ def parser() -> argparse.ArgumentParser:
     dryrun = commands.add_parser("approve-dry-run", help="Approve a Tier-B dry run")
     dryrun.add_argument("plan_id")
     dryrun.add_argument("--actor", required=True)
+    dryrun.add_argument("--signature", type=Path)
     roe = commands.add_parser("roe", help="Rules of engagement")
     roe.add_argument("action", choices=["verify"])
     roe.add_argument("file")
@@ -120,11 +122,15 @@ def parser() -> argparse.ArgumentParser:
     cred.add_argument("--scope", action="append", default=[])
     cred.add_argument("--ref")
     cred.add_argument("--actor")
+    cred.add_argument("--signature", type=Path)
     report = commands.add_parser("report", help="Render a compliance report pack")
     report.add_argument("--framework", choices=["pci", "ctem", "soc2"], required=True)
     report.add_argument("--output", required=True)
     metrics_cmd = commands.add_parser("metrics", help="Discovery efficacy metrics")
     metrics_cmd.add_argument("--since", type=float)
+    sign_cmd = commands.add_parser("sign", help="Sign a message with the operator key")
+    sign_cmd.add_argument("message")
+    sign_cmd.add_argument("--key", required=True, type=Path)
     return root
 
 
@@ -148,6 +154,17 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "sign-bundle":
             emit(sign_bundle(args.bundle, args.key.read_text().strip()))
+            return 0
+        if args.command == "sign":
+            from .signing import FileSigner
+
+            signer = FileSigner(args.key.read_text().strip())
+            emit(
+                {
+                    "fingerprint": signer.fingerprint(),
+                    "signature": signer.sign(args.message.encode()),
+                }
+            )
             return 0
         config = load_config(args.config)
         if args.command == "check":
@@ -313,7 +330,17 @@ def main(argv: list[str] | None = None) -> int:
             emit(ingest_mod.import_sarif(store, config, Path(args.file), args.target, args.actor))
         elif args.command == "approve-plan":
             ttl = int(args.valid_for) if args.valid_for else config.agent.plan_ttl_hours
-            emit(plans_mod.approve(store, args.plan_id, args.actor, ttl_hours=ttl))
+            signature = args.signature.read_text().strip() if args.signature else None
+            emit(
+                plans_mod.approve(
+                    store,
+                    args.plan_id,
+                    args.actor,
+                    ttl_hours=ttl,
+                    config=config,
+                    signature=signature,
+                )
+            )
         elif args.command == "reject-plan":
             emit(plans_mod.reject(store, args.plan_id, args.actor, args.reason))
         elif args.command == "revalidate-plan":
@@ -327,7 +354,12 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
         elif args.command == "approve-dry-run":
-            emit(plans_mod.approve_dry_run(store, args.plan_id, args.actor))
+            signature = args.signature.read_text().strip() if args.signature else None
+            emit(
+                plans_mod.approve_dry_run(
+                    store, args.plan_id, args.actor, config=config, signature=signature
+                )
+            )
         elif args.command == "roe":
             parsed = roe_mod.load_roe(Path(args.file))
             emit(
@@ -345,11 +377,24 @@ def main(argv: list[str] | None = None) -> int:
                 if not args.kind or not args.scope or not args.actor or not args.ref:
                     raise ValueError("credential add requires --kind, --scope, --ref, and --actor")
                 credentials_mod.add_credential(
-                    store, args.credential_id, args.kind, args.scope, args.actor, args.ref
+                    store,
+                    args.credential_id,
+                    args.kind,
+                    args.scope,
+                    args.actor,
+                    args.ref,
+                    config=config,
+                    signature=args.signature.read_text().strip() if args.signature else None,
                 )
                 emit({"added": args.credential_id})
             else:
-                credentials_mod.revoke_credential(store, args.credential_id, args.actor)
+                credentials_mod.revoke_credential(
+                    store,
+                    args.credential_id,
+                    args.actor,
+                    config=config,
+                    signature=args.signature.read_text().strip() if args.signature else None,
+                )
                 emit({"revoked": args.credential_id})
         elif args.command == "report":
             emit(compliance_mod.write_report(store, config, args.framework, args.output))

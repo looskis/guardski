@@ -6,6 +6,7 @@ import time
 import urllib.request
 import uuid
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from typing import Protocol
 
 log = logging.getLogger("guardski")
@@ -49,14 +50,47 @@ class WebhookNotifier:
         urllib.request.urlopen(request, timeout=self.timeout)
 
 
+SYSLOG_FACILITY = 1  # user
+CEF_SEVERITY = {"info": "3", "warning": "6", "critical": "9"}
+
+
+def rfc5424(event: NotificationEvent, host: str = "-") -> str:
+    severity = {"critical": 2, "warning": 4, "info": 6}.get(event.severity, 6)
+    priority = SYSLOG_FACILITY * 8 + severity
+    timestamp = datetime.fromtimestamp(event.timestamp, UTC).isoformat()
+    structured = f'[guardski@32473 kind="{event.kind}" severity="{event.severity}"]'
+    return f"<{priority}>1 {timestamp} {host} guardski - {event.kind} {structured} {event.summary}"
+
+
+def cef(event: NotificationEvent, vendor: str, product: str, version: str) -> str:
+    severity = CEF_SEVERITY.get(event.severity, "3")
+    extensions = " ".join(f"{k}={v}" for k, v in sorted(event.details.items()))
+    return (
+        f"CEF:0|{vendor}|{product}|{version}|{event.kind}|{event.summary}|{severity}|"
+        f"msg={event.summary} suser={event.actor} {extensions}"
+    )
+
+
 class SyslogNotifier:
     name = "syslog"
 
+    def __init__(self, config) -> None:
+        self.format = getattr(config, "syslog_format", "rfc5424")
+        self.vendor = getattr(config, "cef_vendor", "Guardski")
+        self.product = getattr(config, "cef_product", "Guardski")
+        self.version = getattr(config, "cef_version", "0.1.0")
+
+    def render(self, event: NotificationEvent) -> str:
+        if self.format == "cef":
+            return cef(event, self.vendor, self.product, self.version)
+        return rfc5424(event)
+
     def notify(self, event: NotificationEvent) -> None:
+        message = self.render(event)
         try:
             import syslog as syslog_module
 
-            syslog_module.syslog(f"{event.severity}: {event.kind}: {event.summary}")
+            syslog_module.syslog(message)
         except (ImportError, OSError):  # pragma: no cover - platform dependent
             log.warning("syslog unavailable; dropped %s", event.kind)
 
@@ -71,7 +105,7 @@ def build_notifiers(config) -> list[Notifier]:
                 WebhookNotifier(config.notify.webhook_url, config.notify.webhook_timeout_seconds)
             )
         elif name == "syslog":
-            notifiers.append(SyslogNotifier())
+            notifiers.append(SyslogNotifier(config.notify))
     return notifiers
 
 

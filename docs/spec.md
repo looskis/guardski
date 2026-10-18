@@ -1824,6 +1824,21 @@ baseline_probes = 5                # probes to learn baseline before enforcing
 notifiers = ["log"]                # subset of: log, webhook, syslog
 webhook_url = ""                   # required if "webhook" in notifiers; https:// for non-loopback
 webhook_timeout_seconds = 10
+syslog_format = "rfc5424"          # "rfc5424" | "cef"
+cef_vendor = "Guardski"             # used when syslog_format = "cef"
+
+[signing]
+# Ed25519 operator key; a PKCS#11/HSM signer can replace it behind the Signer interface (decision 2)
+provider = "file"
+private_key_path = ""
+
+[rbac]
+# key-based roles (decision 7): approvals must be signed by a listed public key; empty = unenforced
+[rbac.roles]
+# plan_approver = ["<ed25519-public-key-hex>"]
+# dry_run_approver = ["..."]
+# credential_admin = ["..."]
+# roe_signer = ["..."]
 
 [credentials]
 # references only; values resolve at execution, never stored (#4)
@@ -2206,8 +2221,7 @@ not yet reflected in code or in the sections they reference.
 1. **Module naming** — `agent.py` is renamed `scheduler.py` (done). "Agent" means the
    reasoning layer in `reasoning/`. _(§2)_
 2. **Signing keys** — Ed25519 file keys for v1, behind a pluggable signer interface so a
-   PKCS#11/HSM signer can be added when a buyer requires it. No cloud KMS. _(§5.1, §8.1;
-   interface to build)_
+   PKCS#11/HSM signer can be added when a buyer requires it. No cloud KMS. _(§5.1, §8.1)
 3. **Compliance frameworks** — priority PCI DSS 11.3/11.4 → SOC 2 → CTEM. DORA TLPT is
    out of v1. _(§8)_
 4. **Credential secrets** — Guardski persists only a reference, never the value, and resolves
@@ -2217,14 +2231,14 @@ not yet reflected in code or in the sections they reference.
    `file:/path` (mode 0600) refs until safeski gains a TPM backend. There is no
    Guardski-managed encrypted vault (the age default is dropped). _(§7.3)_
 5. **Notifications** — no vendor-specific SIEM code. Syslog emits RFC 5424 structured
-   events with a CEF option; webhook stays. _(§7.2; CEF to build)_
+   events with a CEF option; webhook stays. _(§7.2)_
 6. **Retention** — actions 400d (was 365d) for margin over PCI DSS 10.5.1's 12 months;
    plans and artifacts 430d to keep the actions + 30 floor; facts 400d, notifications 30d,
    intel 30d unchanged. _(§10)_
 7. **RBAC** — key-based roles, no user database. Approvals that matter (RoE, plan approval,
    Tier-B dry-run approval, credential changes) must be signed by an Ed25519 key listed
    for that role in config; `--actor` becomes the signer fingerprint where a signature
-   exists. _(§4.7, §6, §7.3; to build)_
+   exists. _(§4.7, §6, §7.3)_
 8. **Covert mode** — takes effect only when the signed RoE enables it, with an expiry. The
    `agent.mode` config value alone no longer suffices. The audit chain records everything
    in either mode; only outbound notifications are muted. _(§7, §7.2)_

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import time
 
+from . import rbac
+
 
 class PlanStateError(ValueError):
     pass
@@ -14,9 +16,16 @@ def _plan(store, plan_id):
     return row
 
 
-def approve(store, plan_id, actor, ttl_hours=24, now=None):
+def approve(store, plan_id, actor, ttl_hours=24, now=None, config=None, signature=None):
     now = time.time() if now is None else now
     row = _plan(store, plan_id)
+    rbac.require(
+        config,
+        "plan_approver",
+        actor,
+        rbac.message("plan_approve", plan_id=plan_id, context_digest=row["context_digest"]),
+        signature,
+    )
     if row["status"] not in ("generated", "stale", "revalidated"):
         raise PlanStateError(f"Plan {plan_id} is {row['status']} and cannot be approved")
     valid_until = now + ttl_hours * 3600
@@ -99,11 +108,18 @@ def mark_dry_run(store, plan_id, dry_run_digest, now=None):
     return {"plan_id": plan_id, "dry_run_digest": dry_run_digest}
 
 
-def approve_dry_run(store, plan_id, actor, now=None):
+def approve_dry_run(store, plan_id, actor, now=None, config=None, signature=None):
     now = time.time() if now is None else now
     row = _plan(store, plan_id)
     if not row["dry_run_at"]:
         raise PlanStateError("plan has not been dry-run")
+    rbac.require(
+        config,
+        "dry_run_approver",
+        actor,
+        rbac.message("dry_run", plan_id=plan_id, dry_run_digest=row["dry_run_digest"]),
+        signature,
+    )
     with store.db:
         store.db.execute(
             "UPDATE plans SET dry_run_approved_by=?, dry_run_approved_at=? WHERE id=?",

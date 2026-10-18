@@ -7,6 +7,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from . import rbac
+
 # Guardski persists only a reference, never a value (decision 4). The value is resolved at
 # execution time through a pluggable backend: safeski:NAME, env:NAME, or file:/path.
 
@@ -36,7 +38,17 @@ def add_credential(
     purpose=None,
     expires_at=None,
     now=None,
+    config=None,
+    signature=None,
 ):
+    if config is not None:
+        rbac.require(
+            config,
+            "credential_admin",
+            actor,
+            rbac.message("credential_add", credential_id=credential_id, ref=ref),
+            signature,
+        )
     now = time.time() if now is None else now
     if kind not in KINDS:
         raise CredentialError(f"Unknown credential kind: {kind}")
@@ -77,7 +89,15 @@ def metadata(store):
     return result
 
 
-def revoke_credential(store, credential_id, actor):
+def revoke_credential(store, credential_id, actor, config=None, signature=None):
+    if config is not None:
+        rbac.require(
+            config,
+            "credential_admin",
+            actor,
+            rbac.message("credential_revoke", credential_id=credential_id),
+            signature,
+        )
     with store.db:
         result = store.db.execute("DELETE FROM credentials WHERE id=?", (credential_id,))
         if result.rowcount != 1:
