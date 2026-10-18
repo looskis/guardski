@@ -35,10 +35,12 @@ def _sbom_match(transport, request, secrets=None):
 
 
 def _prove(transport, request, secrets=None):
-    prover = getattr(transport, "prove", None)
-    if prover is None:
-        return ActionResult("failed", "proof_transport_required")
-    result = prover(request.action_id, request)
+    if hasattr(transport, "prove"):
+        result = transport.prove(request.action_id, request, secrets)
+    else:
+        from .prove import Prover
+
+        result = Prover().prove(request.action_id, request, secrets)
     return ActionResult(
         result.get("status", "succeeded"),
         result.get("detail", "proof"),

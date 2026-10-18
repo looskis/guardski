@@ -118,6 +118,30 @@ SCHEMAS = {
         "properties": {"url": {"type": "string"}, "path": {"type": "string"}},
         "additionalProperties": False,
     },
+    "prove.ssrf_canary": {
+        "type": "object",
+        "required": ["url"],
+        "properties": {"url": {"type": "string"}, "param": {"type": "string"}},
+        "additionalProperties": False,
+    },
+    "prove.auth_bypass_read": {
+        "type": "object",
+        "required": ["url"],
+        "properties": {"url": {"type": "string"}, "headers": {"type": "object"}},
+        "additionalProperties": False,
+    },
+    "prove.marker_write": {
+        "type": "object",
+        "required": ["url"],
+        "properties": {"url": {"type": "string"}},
+        "additionalProperties": False,
+    },
+    "prove.default_credential": {
+        "type": "object",
+        "required": ["url", "credential_id"],
+        "properties": {"url": {"type": "string"}, "credential_id": {"type": "string"}},
+        "additionalProperties": False,
+    },
 }
 RECON_SPECS = (
     _spec("recon.nmap_rescan", "A", OBJECT, True, True),

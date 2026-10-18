@@ -394,3 +394,39 @@ def test_topology_records_paths_and_segments(config, store):
     built = build_graph(store, net_config, now=NOW)
     kinds = {edge["kind"] for edge in built.edges}
     assert "path_via" in kinds and "same_segment" in kinds
+
+
+def test_prove_actions_against_local_server():
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    from guardski.actions.prove import Prover
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"secret-body")
+
+        def do_POST(self):  # noqa: N802
+            self.send_response(201)
+            self.end_headers()
+
+        def do_DELETE(self):  # noqa: N802
+            self.send_response(204)
+            self.end_headers()
+
+        def log_message(self, *args):
+            return
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    prover = Prover()
+    try:
+        assert prover.read({"url": base})["status"] == "succeeded"
+        assert prover.marker({"url": base})["status"] == "succeeded"
+        assert prover.ssrf({})["status"] == "failed"
+    finally:
+        server.shutdown()
+        server.server_close()
