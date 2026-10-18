@@ -16,12 +16,14 @@ and a gate (§4.5, §6), concurrency and rate are separated (§5.3), CIDR expans
 authorization (§5.2), corroborating provenance is an append-only array (§4.1.4), and the
 missing DDL for `credentials`, `intel_feeds`, and breaker state is supplied (§4.5)._
 
-_Implementation status (2026-11-01): Phase 1 is complete and Phase 2–5 are implemented at
-module level with tests (graph, facts, intel, ingest, providers, reasoning, discovery,
-RoE, policy, tier-A/Tier-B/Tier-C actions, monitor, notify, credentials, compliance),
-using a deterministic stub provider. Remaining integration work: wiring authorized recon
-tasks to real scanner runs in the daemon, bundle-signing CLI, the retention purge job, and
-the scheduled discovery timer. See the module docstrings for the shipped contract._
+_Implementation status (2026-11-01): Phases 1–5 are implemented with tests across the
+modules in §3, using a deterministic stub provider. The daemon now runs the reasoning
+runner (heartbeat thread, scheduled discovery, plan-request servicing, authorized-task
+execution, hourly retention purge); recon tasks are authorized by the policy engine and
+executed (scanner-backed via `scan_target`, probe/offline via the executor). `sign-bundle`
+and signed `verify` are wired through the Ed25519 seam. The `cryptography` package is
+required for signatures and is not yet in `pyproject.toml`; the stub provider is the
+default so the suite runs fully offline.
 
 _Revision 2 added the missing half of the agent: a closed discovery loop (§4.10), scoped
 deterministic context (§4.1.1), agent-recorded observations that are not findings

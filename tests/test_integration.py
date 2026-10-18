@@ -98,3 +98,84 @@ def test_bundle_signing_roundtrip(config, store, tmp_path):
     signature = (tmp_path / "b.zip.sig").read_text()
     assert verify_bundle_signature(bundle, signature, public_hex)["verified"]
     assert signed["sha256"]
+
+
+def test_runner_claims_and_runs_proposed_task(config, store, tmp_path):
+    from dataclasses import replace
+
+    from guardski.runner import ReasoningRunner
+
+    agent = replace(config.agent, reasoning_enabled=True, discovery_enabled=True)
+    roe_path = tmp_path / "roe.toml"
+    roe_path.write_text(
+        f"""[roe]
+id = "r1"
+issued_at = {NOW - 10}
+expires_at = {NOW + 1000}
+scope_allow = ["10.0.0.0/24"]
+max_tier = "A"
+discovery = true
+allowed_actions = ["recon.sbom_match"]
+"""
+    )
+    roe_cfg = replace(config.roe, path=str(roe_path))
+    config = replace(config, agent=agent, roe=roe_cfg)
+    target = config.targets[0]
+    store.start("r1", target, config)
+    store.finish("r1", target, config, [], {}, "", None)
+    import json
+
+    store.db.execute(
+        """INSERT INTO scan_tasks
+        (id, created_at, target_id, action_id, parameters_json, reason, state)
+        VALUES ('t1', ?, 'app', 'recon.sbom_match', ?, 'test', 'proposed')""",
+        (NOW, json.dumps({"asset_ids": ["target:app"], "package": "openssl"})),
+    )
+    store.db.commit()
+    runner = ReasoningRunner(config, store, sleep=lambda _: None)
+    runner._claim_tasks(NOW, None)
+    assert (
+        store.db.execute("SELECT state FROM scan_tasks WHERE id='t1'").fetchone()["state"] == "done"
+    )
+
+
+def test_retention_purges_expired(config, store, tmp_path):
+
+    from guardski import facts
+    from guardski.retention import purge
+
+    target = config.targets[0]
+    store.start("r1", target, config)
+    store.finish("r1", target, config, [], {}, "", None)
+    old = NOW - 500 * 86400
+    store.record_fact(
+        facts.record_reachability(
+            "asset:1",
+            "1.1.1.1:443/tcp",
+            source_action_id=_action(store),
+            artifact_hash="h",
+            observed_at=old,
+            tcp_connect=True,
+        )
+    )
+    with store.db:
+        store.db.execute(
+            """INSERT INTO notifications
+            (id, created_at, kind, severity, summary, details_json, actor, notifier)
+            VALUES ('n1', ?, 'plan_generated', 'info', 's', '{}', 'agent', 'log')""",
+            (old,),
+        )
+    purged = purge(store, config, now=NOW)
+    assert purged["asset_facts"] == 1
+    assert purged["notifications"] == 1
+    assert store.verify_events()
+
+
+def _action(store):
+    store.db.execute(
+        """INSERT INTO actions
+        (id, action_id, tier, roe_id, targets_json, parameters_json, decision, status)
+        VALUES ('a1', 'confirm.reachability', 'A', 'r', '[]', '{}', 'ALLOW', 'succeeded')"""
+    )
+    store.db.commit()
+    return "a1"

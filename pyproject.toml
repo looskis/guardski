@@ -9,6 +9,11 @@ description = "On-premises scheduled security scanning and audit evidence"
 requires-python = ">=3.12"
 dependencies = ["croniter==6.2.4", "defusedxml==0.7.1"]
 
+[project.optional-dependencies]
+# Ed25519 RoE signing and bundle signing (SPEC §5.1, §8.1). Optional so the offline core
+# installs without it; signature paths raise a clear error when it is absent.
+signing = ["cryptography>=42,<46"]
+
 [project.scripts]
 guardski = "guardski.cli:main"
 

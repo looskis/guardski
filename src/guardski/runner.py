@@ -34,6 +34,7 @@ class ReasoningRunner:
         self.sleep = sleep
         self.provider = build_provider(config, store, sleep=sleep)
         self.last_discovery = 0.0
+        self.last_purge = 0.0
 
     def tick(self, now=None, stop=None):
         now = time.time() if now is None else now
@@ -43,6 +44,10 @@ class ReasoningRunner:
             if now - self.last_discovery >= interval:
                 self.last_discovery = now
                 self._discover(now)
+        self._claim_tasks(now, stop)
+        if now - self.last_purge >= 3600:
+            self.last_purge = now
+            self._purge(now)
 
     def _service_requests(self, now):
         rows = self.store.db.execute(
@@ -78,3 +83,25 @@ class ReasoningRunner:
             run_cycle(self.store, self.config, self.provider, now=now)
         except ModelError:
             return
+
+    def _claim_tasks(self, now, stop):
+        if not self.config.agent.discovery_enabled:
+            return
+        from pathlib import Path
+
+        from .actions.recon import claim_and_run
+        from .roe import load_roe
+
+        path = Path(self.config.roe.path)
+        if not path.is_file():
+            return
+        try:
+            roe = load_roe(path)
+        except Exception:  # noqa: BLE001 - an unreadable RoE blocks action, not the daemon
+            return
+        claim_and_run(self.store, self.config, roe, stop=stop, now=now)
+
+    def _purge(self, now):
+        from .retention import purge
+
+        purge(self.store, self.config, now)
