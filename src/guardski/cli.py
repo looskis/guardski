@@ -12,9 +12,14 @@ from pathlib import Path
 from threading import Event
 
 from . import __version__
+from . import ingest as ingest_mod
+from . import intel as intel_mod
 from .agent import run
 from .config import load_config
 from .evidence import export_bundle, verify_bundle
+from .providers import build_provider
+from .reasoning.agent import generate_plan
+from .reasoning.discovery import run_cycle
 from .store import STATUSES, Store
 
 
@@ -55,6 +60,32 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser(
         "gate", help="Fail for coverage gaps, overdue issues, or open HIGH/CRITICAL issues"
     )
+    plan = commands.add_parser("plan", help="Generate an exploitation plan from the graph")
+    plan.add_argument("--scope")
+    plan.add_argument("--wait", action="store_true")
+    commands.add_parser("plans", help="List generated plans")
+    show_plan = commands.add_parser("show-plan", help="Show a plan, narrative, and steps")
+    show_plan.add_argument("plan_id")
+    show_context = commands.add_parser("show-context", help="Show the bundle/prompt the model saw")
+    show_context.add_argument("plan_id")
+    discover = commands.add_parser("discover", help="Run one discovery cycle")
+    discover.add_argument("--scope")
+    discover.add_argument("--dry-run", action="store_true")
+    inv = commands.add_parser("investigations", help="List long-lived hypotheses")
+    inv.add_argument("--status", default="open")
+    commands.add_parser("facts", help="List recorded asset facts")
+    commands.add_parser("tasks", help="List proposed discovery tasks")
+    intel = commands.add_parser("intel", help="Offline vulnerability intelligence")
+    intel.add_argument("action", choices=["import", "status"])
+    intel.add_argument("file", nargs="?")
+    intel.add_argument("--kind", choices=["kev", "epss", "nvd", "osv"])
+    intel.add_argument("--actor")
+    ingest = commands.add_parser("ingest", help="Import external findings")
+    ingest.add_argument("format", choices=["sarif"])
+    ingest.add_argument("file")
+    ingest.add_argument("--target", required=True)
+    ingest.add_argument("--actor", required=True)
+    commands.add_parser("model-probe", help="Record model runtime capabilities")
     return root
 
 
@@ -152,6 +183,83 @@ def main(argv: list[str] | None = None) -> int:
                 }
             )
             return 1 if coverage or findings else 0
+        elif args.command == "model-probe":
+            store.event(
+                "model_probe",
+                {
+                    "model_id": config.model.model_id,
+                    "features": {"structured_output": config.model.structured_output},
+                },
+            )
+            emit({"model_id": config.model.model_id, "endpoint": config.model.endpoint})
+        elif args.command == "facts":
+            emit(store.list_facts())
+        elif args.command == "tasks":
+            emit(
+                [
+                    dict(row)
+                    for row in store.db.execute("SELECT * FROM scan_tasks ORDER BY created_at")
+                ]
+            )
+        elif args.command == "investigations":
+            emit(
+                [
+                    dict(row)
+                    for row in store.db.execute(
+                        "SELECT * FROM investigations WHERE status=? ORDER BY created_at",
+                        (args.status,),
+                    )
+                ]
+            )
+        elif args.command == "plans":
+            emit(
+                [
+                    dict(row)
+                    for row in store.db.execute(
+                        "SELECT id, created_at, scope, status, context_digest FROM plans "
+                        "ORDER BY created_at DESC"
+                    )
+                ]
+            )
+        elif args.command == "show-plan":
+            row = store.db.execute("SELECT * FROM plans WHERE id=?", (args.plan_id,)).fetchone()
+            if row is None:
+                raise ValueError("Unknown plan")
+            emit(
+                {
+                    "status": row["status"],
+                    "context_digest": row["context_digest"],
+                    "plan": json.loads(row["data_json"]),
+                }
+            )
+        elif args.command == "show-context":
+            row = store.db.execute(
+                "SELECT bundle_json, prompt_json FROM plans WHERE id=?", (args.plan_id,)
+            ).fetchone()
+            if row is None:
+                raise ValueError("Unknown plan")
+            emit({"bundle": json.loads(row["bundle_json"]), "prompt": row["prompt_json"]})
+        elif args.command in ("plan", "discover"):
+            if not config.agent.reasoning_enabled:
+                raise ValueError("reasoning_enabled must be true to plan or discover")
+            provider = build_provider(config, store)
+            if args.command == "discover":
+                emit(
+                    run_cycle(
+                        store, config, provider, scope=args.scope or "all", dry_run=args.dry_run
+                    )
+                )
+            else:
+                emit(generate_plan(store, config, provider, scope=args.scope or "all"))
+        elif args.command == "intel":
+            if args.action == "status":
+                emit(intel_mod.status(store))
+            else:
+                if not args.file or not args.kind or not args.actor:
+                    raise ValueError("intel import requires a file, --kind, and --actor")
+                emit(intel_mod.import_feed(store, config, Path(args.file), args.kind, args.actor))
+        elif args.command == "ingest":
+            emit(ingest_mod.import_sarif(store, config, Path(args.file), args.target, args.actor))
         return 0
     except Exception as exc:
         print(f"guardski: {exc}", file=sys.stderr)
