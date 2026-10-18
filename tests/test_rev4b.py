@@ -438,3 +438,17 @@ def test_eval_harness(config):
     result = run(config)
     assert result["total"] == 4
     assert result["passed"] == 4, result
+
+
+def test_init_writes_a_loadable_config(tmp_path):
+    from guardski.cli import main
+    from guardski.config import load_config
+
+    path = tmp_path / "guardski.toml"
+    assert main(["init", "--path", str(path)]) == 0
+    config = load_config(path)
+    assert config.targets[0].kind == "filesystem"
+    assert config.targets[0].value == str(tmp_path)
+
+    assert main(["init", "--path", str(path)]) == 1
+    assert main(["init", "--path", str(path), "--force"]) == 0

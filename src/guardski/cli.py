@@ -25,7 +25,7 @@ from . import plans as plans_mod
 from . import roe as roe_mod
 from . import sbom as sbom_mod
 from . import topology as topology_mod
-from .config import load_config
+from .config import load_config, write_starter
 from .evidence import export_bundle, sign_bundle, verify_bundle, verify_bundle_signature
 from .providers import build_provider
 from .reasoning.agent import generate_plan
@@ -44,6 +44,9 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--config", type=Path, default=Path("guardski.toml"))
     commands = root.add_subparsers(dest="command", required=True)
     commands.add_parser("check", help="Validate configuration and required scanner availability")
+    init_cmd = commands.add_parser("init", help="Write a starter configuration file")
+    init_cmd.add_argument("--path", type=Path, default=Path("guardski.toml"))
+    init_cmd.add_argument("--force", action="store_true", help="Overwrite an existing file")
     commands.add_parser("run", help="Run the persistent scheduler")
     scan = commands.add_parser("scan", help="Scan configured targets once")
     scan.add_argument("--target")
@@ -224,6 +227,14 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "restore":
             emit(backup_mod.restore(args.input, args.state_dir, args.force))
+            return 0
+        if args.command == "init":
+            try:
+                path = write_starter(args.path, args.force)
+            except FileExistsError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            emit({"config": str(path), "next": f"guardski --config {path} check"})
             return 0
         config = load_config(args.config)
         if args.command == "check":

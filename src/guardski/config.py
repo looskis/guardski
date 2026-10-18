@@ -934,3 +934,74 @@ def _validate(config: Config) -> None:
     if config.model.structured_output == "grammar":
         if not config.model.grammar_path or not Path(config.model.grammar_path).is_file():
             raise ConfigError("structured_output = grammar requires a readable grammar_path")
+
+
+STARTER_CONFIG = """\
+# Guardski configuration. Schedules use UTC; relative paths resolve against this file.
+# Validate with: guardski --config guardski.toml check
+
+[agent]
+state_dir = ".guardski"
+offline = false
+timeout_seconds = 1800
+max_output_mb = 64
+max_db_age_hours = 168
+
+[schedule]
+cron = "0 2 * * *"
+run_on_start = true
+
+[engines]
+trivy = "trivy"
+nuclei = "nuclei"
+nmap = "nmap"
+rate_limit = 5
+nuclei_templates = []
+
+# Organizational SLAs, not deadlines prescribed by any framework.
+[policy]
+critical_days = 7
+high_days = 30
+medium_days = 90
+low_days = 180
+
+[[targets]]
+id = "working-tree"
+kind = "filesystem"
+value = "."
+owner = "security"
+scanners = ["vuln", "misconfig", "secret"]
+
+# Add only targets you are authorized to scan. Examples:
+#
+# [[targets]]
+# id = "linux-host"
+# kind = "rootfs"
+# value = "/mnt/host"
+# owner = "platform"
+# scanners = ["vuln", "misconfig"]
+#
+# [[targets]]
+# id = "office-net"
+# kind = "network"
+# value = "10.0.0.0/24"
+# owner = "network"
+# ports = "22,80,443"
+# discovery = true
+
+# Optional: an OpenAI-compatible local model instead of the deterministic stub.
+# [model]
+# provider = "openai"
+# endpoint = "http://127.0.0.1:11434/v1"
+# model_id = "qwen3:8b"
+"""
+
+
+def write_starter(path: Path, force: bool = False) -> Path:
+    """Write a commented starter configuration that loads without edits."""
+    target = Path(path).expanduser()
+    if target.exists() and not force:
+        raise FileExistsError(f"{target} already exists; pass --force to overwrite")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(STARTER_CONFIG)
+    return target
