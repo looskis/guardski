@@ -16,6 +16,7 @@ from . import backup as backup_mod
 from . import cmdb as cmdb_mod
 from . import compliance as compliance_mod
 from . import credentials as credentials_mod
+from . import eval as eval_mod
 from . import identity as identity_mod
 from . import ingest as ingest_mod
 from . import intel as intel_mod
@@ -126,6 +127,7 @@ def parser() -> argparse.ArgumentParser:
     topo_cmd = commands.add_parser("topology", help="Measure network paths between assets")
     topo_cmd.add_argument("action", choices=["trace"])
     topo_cmd.add_argument("--actor", required=True)
+    commands.add_parser("eval", help="Run the agent eval harness")
     intel = commands.add_parser("intel", help="Offline vulnerability intelligence")
     intel.add_argument("action", choices=["import", "status", "fetch"])
     intel.add_argument("file", nargs="?")
@@ -672,6 +674,8 @@ def main(argv: list[str] | None = None) -> int:
             emit(sbom_mod.write(store, args.output, args.asset))
         elif args.command == "topology":
             emit(topology_mod.measure(store, config, args.actor))
+        elif args.command == "eval":
+            emit(eval_mod.run(config))
         elif args.command == "assets":
             emit(cmdb_mod.import_assets(store, args.file, args.actor))
         elif args.command == "identity":

@@ -430,3 +430,11 @@ def test_prove_actions_against_local_server():
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_eval_harness(config):
+    from guardski.eval import run
+
+    result = run(config)
+    assert result["total"] == 4
+    assert result["passed"] == 4, result
