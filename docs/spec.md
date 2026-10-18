@@ -515,31 +515,34 @@ The provider is the _only_ component allowed to make a model call.
 ```python
 class ModelProvider(Protocol):
     name: str
+
     def generate(self, request: GenerationRequest) -> GenerationResult: ...
+
 
 @dataclass(frozen=True)
 class GenerationRequest:
     system: str
     messages: tuple[Message, ...]
-    schema: dict          # JSON schema the result MUST validate against
-    max_tokens: int       # output only
-    temperature: float    # recorded; default 0 for reproducibility pressure
+    schema: dict  # JSON schema the result MUST validate against
+    max_tokens: int  # output only
+    temperature: float  # recorded; default 0 for reproducibility pressure
     timeout_seconds: int  # per-request timeout; default 120
-    input_token_budget: int = 24000   # enforced before the call, not hoped for
+    input_token_budget: int = 24000  # enforced before the call, not hoped for
     structured_output: str = "json_schema"  # json_schema | grammar | prompt_only
-    grammar: str | None = None        # GBNF/JSON grammar when the runtime supports it
-    repair_turns: int = 1             # validator-error feedback attempts
+    grammar: str | None = None  # GBNF/JSON grammar when the runtime supports it
+    repair_turns: int = 1  # validator-error feedback attempts
+
 
 @dataclass(frozen=True)
 class GenerationResult:
-    content: dict         # parsed, schema-validated
+    content: dict  # parsed, schema-validated
     model_id: str
-    prompt_sha256: str    # hash of the exact rendered prompt
-    raw_sha256: str       # hash of the raw completion (stored, not the text)
+    prompt_sha256: str  # hash of the exact rendered prompt
+    raw_sha256: str  # hash of the raw completion (stored, not the text)
     usage: dict
-    latency_ms: int       # wall-clock time for the call
-    finish_reason: str    # stop | length | content_filter | error
-    repaired: bool        # true if a repair turn was used
+    latency_ms: int  # wall-clock time for the call
+    finish_reason: str  # stop | length | content_filter | error
+    repaired: bool  # true if a repair turn was used
 ```
 
 - **`openai.py`** targets any OpenAI-compatible endpoint; URL and `model_id` come from
@@ -1203,29 +1206,32 @@ rather than confirm an existing finding. They are gated by `roe.discovery` and a
 class ActionSpec:
     id: str
     tier: str
-    parameter_schema: dict       # JSON schema for Step.parameters
-    discoverable: bool           # may be proposed by the discovery loop
+    parameter_schema: dict  # JSON schema for Step.parameters
+    discoverable: bool  # may be proposed by the discovery loop
     reversible: bool
     hard_stop_class: str | None  # None means no hard-stop category applies
+
 
 @dataclass(frozen=True)
 class ActionRequest:
     action_id: str
-    tier: str                         # must equal the catalog tier; never the decision input
-    targets: tuple[str, ...]          # IP / CIDR / URL; expanded before policy authorizes
+    tier: str  # must equal the catalog tier; never the decision input
+    targets: tuple[str, ...]  # IP / CIDR / URL; expanded before policy authorizes
     asset_ids: tuple[str, ...]
-    parameters: dict                  # validated against ActionSpec.parameter_schema
-    intensity: int                    # desired concurrency; policy derives/validates it
+    parameters: dict  # validated against ActionSpec.parameter_schema
+    intensity: int  # desired concurrency; policy derives/validates it
     credential_ids: tuple[str, ...]
     plan_id: str | None
     step_ordinal: int | None
     task_id: str | None
 
+
 class Action(Protocol):
-    spec: ActionSpec                  # id, tier, parameter_schema, discoverable, reversible
+    spec: ActionSpec  # id, tier, parameter_schema, discoverable, reversible
+
     def describe(self, request: ActionRequest) -> str: ...
-    def validate(self, request: ActionRequest, config: Config) -> None: ...   # bad params raise
-    def dry_run(self, request: ActionRequest) -> SimulatedResult: ...          # never touches target
+    def validate(self, request: ActionRequest, config: Config) -> None: ...  # bad params raise
+    def dry_run(self, request: ActionRequest) -> SimulatedResult: ...  # never touches target
     def execute(self, request: ActionRequest, lease_fd: int, monitor) -> ActionResult: ...
 ```
 
@@ -1577,15 +1583,17 @@ emits a notification, in addition to the audit event.
 ```python
 class Notifier(Protocol):
     name: str
+
     def notify(self, event: NotificationEvent) -> None: ...
+
 
 @dataclass(frozen=True)
 class NotificationEvent:
-    kind: str               # plan_approved, action_started, monitor_anomaly, cleanup_failed, ...
+    kind: str  # plan_approved, action_started, monitor_anomaly, cleanup_failed, ...
     severity: "info" | "warning" | "critical"
-    summary: str            # one-line human-readable summary (no secrets, no raw data)
-    details: dict           # structured context (ids, timestamps, digests)
-    actor: str              # who or what triggered it
+    summary: str  # one-line human-readable summary (no secrets, no raw data)
+    details: dict  # structured context (ids, timestamps, digests)
+    actor: str  # who or what triggered it
     timestamp: float
 ```
 
