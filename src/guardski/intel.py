@@ -6,6 +6,7 @@ import io
 import json
 import shutil
 import time
+import urllib.request
 from pathlib import Path
 
 SOURCES = ("kev", "epss", "nvd", "osv")
@@ -190,3 +191,35 @@ def status(store, now: float | None = None) -> list[dict]:
         item["age_hours"] = (now - row["imported_at"]) / 3600
         rows.append(item)
     return rows
+
+
+_SUFFIX = {"kev": ".json", "epss": ".csv", "nvd": ".json", "osv": ".jsonl"}
+
+
+def fetch(kind, url, output_dir, expected_sha256=None, timeout=60, now=None):
+    """Connected staging host: fetch a feed over the network, pin its hash, and write a
+    bundle to carry across the air gap (decision 10). Never run on the monitored host."""
+    if kind not in PARSERS:
+        raise ValueError(f"Unknown intel kind: {kind}")
+    if not url.startswith(("https://", "http://", "file://")):
+        raise ValueError("intel fetch requires an http(s):// or file:// URL")
+    now = time.time() if now is None else now
+    with urllib.request.urlopen(url, timeout=timeout) as response:
+        data = response.read()
+    digest = hashlib.sha256(data).hexdigest()
+    if expected_sha256 and digest != expected_sha256:
+        raise ValueError(
+            f"intel fetch hash mismatch: expected {expected_sha256} got {digest}"
+        )
+    directory = Path(output_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{kind}-{digest[:16]}{_SUFFIX[kind]}"
+    path.write_bytes(data)
+    manifest = directory / f"{kind}-{digest[:16]}.manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {"source": kind, "url": url, "sha256": digest, "file": path.name, "fetched_at": now},
+            indent=2,
+        )
+    )
+    return {"source": kind, "path": str(path), "sha256": digest, "manifest": str(manifest)}

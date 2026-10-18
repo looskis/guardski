@@ -102,3 +102,21 @@ def test_import_sarif_preserves_provenance(config, store, tmp_path):
     row = store.db.execute("SELECT provenance_json, coverage_verified FROM findings").fetchone()
     assert row["coverage_verified"] == 0
     assert json.loads(row["provenance_json"])[0]["tool"] == "otherscan"
+
+
+def test_intel_fetch_pins_hash(tmp_path):
+    import hashlib
+
+    import pytest
+
+    from guardski.intel import fetch
+
+    src = tmp_path / "kev.json"
+    src.write_text('{"vulnerabilities": [{"cveID": "CVE-1"}]}')
+    digest = hashlib.sha256(src.read_bytes()).hexdigest()
+    out = tmp_path / "bundle"
+    result = fetch("kev", src.as_uri(), out, expected_sha256=digest)
+    assert result["sha256"] == digest
+    assert (out / f"kev-{digest[:16]}.json").is_file()
+    with pytest.raises(ValueError, match="mismatch"):
+        fetch("kev", src.as_uri(), out, expected_sha256="0" * 64)

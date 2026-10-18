@@ -86,10 +86,13 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("facts", help="List recorded asset facts")
     commands.add_parser("tasks", help="List proposed discovery tasks")
     intel = commands.add_parser("intel", help="Offline vulnerability intelligence")
-    intel.add_argument("action", choices=["import", "status"])
+    intel.add_argument("action", choices=["import", "status", "fetch"])
     intel.add_argument("file", nargs="?")
     intel.add_argument("--kind", choices=["kev", "epss", "nvd", "osv"])
     intel.add_argument("--actor")
+    intel.add_argument("--url")
+    intel.add_argument("--output")
+    intel.add_argument("--sha256")
     ingest = commands.add_parser("ingest", help="Import external findings")
     ingest.add_argument("format", choices=["sarif"])
     ingest.add_argument("file")
@@ -322,6 +325,10 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "intel":
             if args.action == "status":
                 emit(intel_mod.status(store))
+            elif args.action == "fetch":
+                if not args.kind or not args.url or not args.output:
+                    raise ValueError("intel fetch requires --kind, --url, and --output")
+                emit(intel_mod.fetch(args.kind, args.url, args.output, args.sha256))
             else:
                 if not args.file or not args.kind or not args.actor:
                     raise ValueError("intel import requires a file, --kind, and --actor")
